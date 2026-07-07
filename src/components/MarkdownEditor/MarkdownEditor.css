@@ -1,0 +1,84 @@
+.editor {
+  display: grid;
+  grid-template-rows: var(--header-height) 1fr;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+}
+
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  height: var(--header-height);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-hover);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.readonly-badge {
+  color: #f7c45f;
+  font-weight: 700;
+  margin-left: 8px;
+}
+
+.editor-body {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-overlay);
+  display: grid;
+  grid-template-rows: 20px 1fr;
+}
+
+.editor-topfade {
+  z-index: 3;
+  height: 20px;
+  background: linear-gradient(180deg, rgba(124, 58, 237, 0.10), transparent);
+}
+
+.editor-view {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  overflow: hidden;
+}
+
+.editor-gutter {
+  overflow: hidden;
+  padding-top: 0;
+  background: rgba(255, 255, 255, 0.01);
+  border-right: 1px solid var(--line-light);
+  user-select: none;
+}
+
+.gutter-line {
+  text-align: right;
+  padding-right: 12px;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(142, 162, 192, 0.82);
+}
+
+.editor-textarea {
+  width: 100%;
+  height: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: #f8faff;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 0 16px 0 12px;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+  overflow-y: auto;
+  tab-size: 2;
+}
+
+.editor-textarea:disabled {
+  color: var(--text-secondary);
+}

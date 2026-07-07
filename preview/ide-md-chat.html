@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 项目计划生成系统 - IDE Preview</title>
+  <style>
+    :root{--bg:#060912;--line:rgba(165,182,206,.18);--text:#edf4ff;--muted:#8ea2c0;--accent:#7c3aed;--mono:"JetBrains Mono","SFMono-Regular",Consolas,monospace;--ui:Inter,system-ui,sans-serif}
+    *{box-sizing:border-box} body{margin:0;min-height:100vh;padding:16px;background:radial-gradient(circle at 15% 10%,rgba(124,58,237,.2),transparent 28%),radial-gradient(circle at 88% 16%,rgba(34,211,238,.14),transparent 24%),linear-gradient(180deg,#04060b,#060912);color:var(--text);font-family:var(--ui)}
+    .shell{max-width:1600px;margin:0 auto;height:min(calc(100vh - 32px),1020px);border:1px solid var(--line);border-radius:24px;overflow:hidden;background:rgba(6,9,18,.9);box-shadow:0 34px 110px rgba(0,0,0,.55);backdrop-filter:blur(18px);display:grid;grid-template-rows:54px 28px 1fr}
+    .titlebar,.toolbar{display:flex;align-items:center;padding:0 14px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.02)}
+    .titlebar{gap:12px}.traffic{display:flex;gap:8px}.dot{width:12px;height:12px;border-radius:50%}.red{background:#ff5f57}.yellow{background:#febc2e}.green{background:#28c840}.title{font-weight:700}.crumbs{margin-left:12px;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .versions{display:flex;height:28px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.012)} .ver-tab{flex:1;display:flex;align-items:center;justify-content:center;border-right:1px solid rgba(165,182,206,.12);font-size:11px;font-weight:700;color:rgba(237,244,255,.66);background:linear-gradient(180deg,rgba(255,255,255,.018),rgba(255,255,255,.005))} .ver-tab.active{background:rgba(255,255,255,.05);color:#f8faff}
+    .layout{display:grid;grid-template-columns:268px minmax(560px,1fr) 400px;min-height:0}.sidebar,.editor,.chat{min-height:0}
+    .sidebar{border-right:1px solid var(--line);background:rgba(255,255,255,.015);display:grid;grid-template-rows:48px auto}.section-head,.panel-head{display:flex;align-items:center;justify-content:space-between;padding:0 14px;height:48px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.02);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:rgba(237,244,255,.86)}
+    .files{overflow:auto}.file{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid rgba(165,182,206,.08);color:rgba(237,244,255,.86)} .file.active{background:rgba(124,58,237,.12)} .pill{width:10px;height:10px;border-radius:2px} .file:nth-child(1) .pill,.file:nth-child(6) .pill,.file:nth-child(9) .pill,.file:nth-child(12) .pill{background:#ff5f57} .file:nth-child(2) .pill,.file:nth-child(5) .pill,.file:nth-child(7) .pill,.file:nth-child(10) .pill{background:#febc2e} .file:nth-child(3) .pill,.file:nth-child(4) .pill,.file:nth-child(8) .pill,.file:nth-child(11) .pill{background:#28c840} .name{font-size:14px;font-weight:600}.meta{margin-left:auto;font-size:12px;color:var(--muted)}
+    .editor{border-right:1px solid var(--line);display:grid;grid-template-rows:48px 1fr}.editor-body{position:relative;overflow:auto;background:rgba(9,14,24,.92)}.editor-topfade{position:sticky;top:0;z-index:3;height:20px;background:linear-gradient(180deg,rgba(124,58,237,.10),transparent)}
+    .code{display:grid;grid-template-columns:64px 1fr;font-family:var(--mono);font-size:13px;line-height:1.45;padding:0 0 24px}.ln{padding:0 12px 0 0;text-align:right;color:rgba(142,162,192,.82);border-right:1px solid rgba(165,182,206,.08);background:rgba(255,255,255,.01);user-select:none}.line-row{padding:0 16px 0 12px;white-space:pre-wrap;word-break:break-word}.line-row.current{background:rgba(124,58,237,.08)}.caret{display:inline-block;width:7px;height:1em;vertical-align:-.15em;margin-left:2px;background:#f8faff;box-shadow:0 0 10px rgba(248,250,255,.18)}
+    .h1{color:#fff;font-weight:700}.h2{color:#b8ff5e}.h3{color:#68a7ff}.h4{color:#f7c45f}.muted{color:rgba(142,162,192,.9)}.danger{color:#ff90a5}
+    .chat{display:grid;grid-template-rows:48px 1fr 128px;min-width:0}.chat-body{overflow:auto;padding:12px 12px 10px 16px;display:grid;align-content:start;gap:8px;font-size:13px;line-height:1.5}.msg{max-width:88%;border:1px solid rgba(165,182,206,.14);border-radius:6px;padding:5px 7px;background:rgba(11,17,29,.92);font-size:13px;line-height:1.5;color:#f8faff}.msg.user{margin-left:auto;background:rgba(124,58,237,.08);border-color:rgba(124,58,237,.20)}.composer{padding:10px 12px 12px;border-top:1px solid var(--line);background:rgba(255,255,255,.02)}.input{min-height:94px;border:1px solid var(--line);border-radius:12px;background:rgba(9,14,24,.98);padding:12px;display:flex;flex-direction:column;justify-content:space-between;gap:10px}.placeholder{color:rgba(142,162,192,.86);font-size:13px}.footer{display:flex;align-items:center;justify-content:space-between;gap:10px}.hint{color:var(--muted);font-size:13px}.btn{border:1px solid rgba(255,255,255,.10);border-radius:9px;padding:8px 12px;background:rgba(255,255,255,.04);color:#f8faff;font-size:13px;font-weight:700}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="titlebar"><div class="traffic"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span></div><div class="title">AI 项目计划生成系统</div><div class="crumbs">/Volumes/.../AI_项目计划生成系统.md</div></div>
+    <div class="versions"><div class="ver-tab">version 1.0</div><div class="ver-tab">version 2.0</div><div class="ver-tab">version 3.0</div><div class="ver-tab">version 4.0</div><div class="ver-tab active">version 5.0</div></div>
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="section-head"><span>EXPLORER</span><span>12 FILES</span></div>
+        <div class="files">
+          <div class="file active"><span class="pill"></span><span class="name">AI_项目计划生成系统.md</span><span class="meta">md</span></div>
+          <div class="file"><span class="pill"></span><span class="name">version_summary.md</span><span class="meta">md</span></div>
+          <div class="file"><span class="pill"></span><span class="name">change_log.md</span><span class="meta">md</span></div>
+          <div class="file"><span class="pill"></span><span class="name">question_log.md</span><span class="meta">md</span></div>
+          <div class="file"><span class="pill"></span><span class="name">confirmation_log.md</span><span class="meta">md</span></div>
+          <div class="file"><span class="pill"></span><span class="name">diff-v0-to-v1.md</span><span class="meta">md</span></div>
+          <div class="file"><span class="pill"></span><span class="name">freeze_summary.md</span><span class="meta">md</span></div>
+          <div class="file"><span class="pill"></span><span class="name">plan-01 总体计划.md</span><span class="meta">md</span></div>
+          <div class="file"><span class="pill"></span><span class="name">plan-02 模块A.md</span><span class="meta">md</span></div>
+          <div class="file"><span class="pill"></span><span class="name">plan-03 模块B.md</span><span class="meta">md</span></div>
+          <div class="file"><span class="pill"></span><span class="name">plan-04 模块C.md</span><span class="meta">md</span></div>
+          <div class="file"><span class="pill"></span><span class="name">archive/</span><span class="meta">dir</span></div>
+        </div>
+      </aside>
+      <section class="editor">
+        <div class="toolbar"><div>Markdown | Auto Save | Frozen v3.1</div><div>Ln 1, Col 1</div></div>
+        <div class="editor-body" id="editorScroll"><div class="editor-topfade"></div><div class="code" id="mdCode"></div></div>
+      </section>
+      <aside class="chat">
+        <div class="panel-head"><span>AI Chat</span><span>Context aware</span></div>
+        <div class="chat-body">
+          <p>我会按 IDE 的方式展示上下文，保持克制、直接、低干扰。</p>
+          <div class="msg user">开始</div>
+          <p>收到。现在开始围绕当前 md 文档推进，不再引入多余卡片和装饰。</p>
+        </div>
+        <div class="composer">
+          <div class="input"><div class="placeholder">继续</div><div class="footer"><div class="hint">Enter to send · Shift + Enter for newline</div><button class="btn">发送</button></div></div>
+        </div>
+      </aside>
+    </div>
+  </div>
+<script>
+const lines = [
+  '---',
+  'title: AI 项目计划生成系统',
+  'version: 3.1',
+  'status: draft',
+  'purpose: 将用户的模糊或明确想法持续收敛为可落地的软件工程规范文档，并以多轮对话、版本保留、差异记录与本地目录归档的方式长期演进。',
+  '---',
+  '',
+  '# AI 项目计划生成系统正式规范',
+  '',
+  '## 1. 总则',
+  '',
+  '### 1.1 文档定位',
+  '本文档定义一套把“想法”稳定转化为“可执行、可追溯、可冻结、可归档”的规范系统。它不是一次性方案，也不是单纯的聊天规则，而是一套长期演进的文档治理与版本治理机制。',
+  '',
+  '系统的运行主线只有一条：',
+  '',
+  '**输入想法 → 识别缺口 → 追问收敛 → 生成版本 → 记录差异 → 冻结归档 → 基于历史派生新版本**',
+  '',
+  '本文档负责定义这条主线上的所有规则，包括：',
+  '- 系统要解决什么问题',
+  '- 系统边界在哪里',
+  '- 对话如何收敛为结论',
+  '- 版本如何生成与流转',
+  '- 文档如何分层与归档',
+  '- 差异如何记录与追溯',
+  '- 冻结如何生效与回退',
+  '- 模板如何统一与约束',
+  '',
+  '本规范覆盖：',
+  '- 目标与边界',
+  '- 对话收敛机制',
+  '- 版本与状态管理',
+  '- 文档与目录规范',
+  '- 变更与差异记录',
+  '- 冻结与归档规则',
+  '- 执行与模板规范',
+  '',
+  '### 1.2 核心目标',
+  '系统的核心目标是：',
+  '1. 将模糊想法逐步收敛为清晰事实',
+  '2. 将确认结果沉淀为版本化文档',
+  '3. 将每次变化记录为可追溯差异',
+  '4. 将冻结结果长期归档保存',
+  '5. 让当前状态、历史过程、最终结论始终可定位',
+  '6. 让任何阶段都能判断“是否可继续推进”',
+  '',
+  '### 1.3 设计原则',
+  '- 先收敛，再细化',
+  '- 先确认，再冻结',
+  '- 先保留，再优化',
+  '- 先落盘，再记忆',
+  '- 先结构化，再美化',
+];
+const code = document.getElementById('mdCode');
+const lineHeight = 1.45;
+const make = (t, n) => {
+  const left = document.createElement('div'); left.className='ln'; left.textContent = n;
+  const right = document.createElement('div'); right.className='line-row';
+  if (n === 16) right.classList.add('current');
+  if (n === 16) right.innerHTML = '<span>**输入想法 → 识别缺口 → 追问收敛 → 生成版本 → 记录差异 → 冻结归档 → 基于历史派生新版本**</span><span class="caret"></span>';
+  else {
+    const esc = t.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+    right.innerHTML = esc
+      .replace(/^### (.*)$/, '<span class="h1">### $1</span>')
+      .replace(/^## (.*)$/, '<span class="h1">## $1</span>')
+      .replace(/^# (.*)$/, '<span class="h1"># $1</span>')
+      .replace(/^title:/, '<span class="h3">title:</span>')
+      .replace(/^version:/, '<span class="h3">version:</span>')
+      .replace(/^status:/, '<span class="h3">status:</span>')
+      .replace(/^purpose:/, '<span class="h3">purpose:</span>')
+      .replace(/^- (.*)$/, '<span class="h2">- $1</span>')
+      .replace(/^\d+\./, m => `<span class="h4">${m}</span>`)
+      .replace(/^\*\*(.*)\*\*$/, '<span class="h1">**$1**</span>')
+      .replace(/^---$/, '<span class="muted">---</span>')
+      .replace(/^\s*$/, '&nbsp;');
+  }
+  return [left,right];
+};
+lines.forEach((t,i)=>{ const [l,r]=make(t,i+1); code.appendChild(l); code.appendChild(r); });
+</script>
+</body>
+</html>

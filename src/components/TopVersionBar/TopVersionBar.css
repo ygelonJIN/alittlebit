@@ -1,0 +1,86 @@
+.top-version-bar {
+  display: flex;
+  height: var(--version-tabs-height);
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.012);
+}
+
+.ver-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-right: 1px solid var(--line-medium);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0.005));
+  cursor: default;
+  user-select: none;
+  position: relative;
+}
+
+.ver-tab:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ver-tab.active {
+  background: rgba(255, 255, 255, 0.05);
+  color: #f8faff;
+}
+
+.ver-tab.locked {
+  color: #f7c45f;
+}
+
+.ver-tab-actions,
+.ver-tab-btn-left {
+  display: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.ver-tab:hover .ver-tab-actions,
+.ver-tab.active .ver-tab-actions,
+.ver-tab:hover .ver-tab-btn-left,
+.ver-tab.active .ver-tab-btn-left {
+  display: flex;
+}
+
+.ver-tab-btn {
+  min-width: 32px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0 5px;
+}
+
+.ver-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #f8faff;
+}
+
+.ver-tab-name {
+  cursor: text;
+}
+
+.ver-tab-rename {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--accent);
+  color: #f8faff;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  outline: none;
+  width: 90%;
+}

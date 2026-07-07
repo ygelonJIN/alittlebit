@@ -1,0 +1,117 @@
+.app {
+  height: 100%;
+  padding: 16px;
+  background: var(--bg);
+}
+
+.shell {
+  max-width: 1600px;
+  height: 100%;
+  margin: 0 auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: rgba(6, 9, 18, 0.9);
+  box-shadow: 0 34px 110px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(18px);
+  display: grid;
+  grid-template-rows: var(--titlebar-height) var(--version-tabs-height) 1fr 22px;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-hover);
+}
+
+.traffic {
+  display: flex;
+  gap: 8px;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.dot.red    { background: #ff5f57; }
+.dot.yellow { background: #febc2e; }
+.dot.green  { background: #28c840; }
+
+.title {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.crumbs {
+  margin-left: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.titlebar-settings {
+  margin-left: auto;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 9px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #f8faff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.titlebar-settings:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.titlebar-dropdown {
+  position: relative;
+  margin-left: 8px;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  min-width: 120px;
+  z-index: 200;
+  overflow: hidden;
+}
+
+.dropdown-item {
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: 1px solid rgba(165, 182, 206, 0.06);
+}
+
+.dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.dropdown-item:hover {
+  background: rgba(124, 58, 237, 0.15);
+  color: #f8faff;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 268px minmax(560px, 1fr) 400px;
+  min-height: 0;
+}

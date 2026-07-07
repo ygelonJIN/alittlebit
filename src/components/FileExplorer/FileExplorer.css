@@ -1,0 +1,114 @@
+.file-explorer {
+  display: grid;
+  grid-template-rows: var(--header-height) 1fr;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.explorer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  height: var(--header-height);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-hover);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.explorer-head span:last-child {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.new-file-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.new-file-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.new-file-row {
+  padding: 0;
+}
+
+.new-file-input {
+  width: 100%;
+  height: 42px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: #f8faff;
+  font-size: 14px;
+  padding: 0 14px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.files {
+  overflow-y: auto;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line-light);
+  color: var(--text-secondary);
+  cursor: default;
+  user-select: none;
+}
+
+.file-item:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.file-item.active {
+  background: var(--accent-soft);
+}
+
+.pill {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.pill.red    { background: #ff5f57; }
+.pill.yellow { background: #febc2e; }
+.pill.green  { background: #28c840; }
+.pill.blue   { background: #68a7ff; }
+.pill.purple { background: #7c3aed; }
+
+.file-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.file-meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.folder-item {
+  color: var(--muted);
+  font-style: italic;
+}

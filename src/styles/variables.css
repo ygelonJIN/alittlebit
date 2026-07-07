@@ -1,0 +1,71 @@
+:root {
+  --bg: #060912;
+  --bg-panel: rgba(6, 9, 18, 0.92);
+  --bg-hover: rgba(255, 255, 255, 0.02);
+  --bg-overlay: rgba(9, 14, 24, 0.92);
+  --line: rgba(165, 182, 206, 0.18);
+  --line-light: rgba(165, 182, 206, 0.08);
+  --line-medium: rgba(165, 182, 206, 0.12);
+  --text: #edf4ff;
+  --text-secondary: rgba(237, 244, 255, 0.86);
+  --text-muted: rgba(237, 244, 255, 0.66);
+  --muted: #8ea2c0;
+  --accent: #7c3aed;
+  --accent-soft: rgba(124, 58, 237, 0.12);
+  --accent-border: rgba(124, 58, 237, 0.20);
+  --mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  --ui: Inter, system-ui, sans-serif;
+  --radius: 24px;
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 12px;
+  --header-height: 48px;
+  --titlebar-height: 54px;
+  --version-tabs-height: 28px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: radial-gradient(circle at 15% 10%, rgba(124, 58, 237, 0.2), transparent 28%),
+              radial-gradient(circle at 88% 16%, rgba(34, 211, 238, 0.14), transparent 24%),
+              linear-gradient(180deg, #04060b, #060912);
+  color: var(--text);
+  font-family: var(--ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(124, 58, 237, 0.35);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(124, 58, 237, 0.55);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(124, 58, 237, 0.35) transparent;
+}
