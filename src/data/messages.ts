@@ -3,10 +3,10 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp?: string;
+  raw?: string;
+  protocol?: any;
 }
 
 export const messages: ChatMessage[] = [
-  { id: 'm1', role: 'assistant', content: '我会按 IDE 的方式展示上下文，保持克制、直接、低干扰。', timestamp: '10:00' },
-  { id: 'm2', role: 'user', content: '开始', timestamp: '10:01' },
-  { id: 'm3', role: 'assistant', content: '收到。现在开始围绕当前 md 文档推进，不再引入多余卡片和装饰。', timestamp: '10:01' },
+  { id: 'm1', role: 'assistant', content: '欢迎使用 alittlebit。输入你的想法，我来逐步收敛为可执行的软件工程文档。', timestamp: '10:00' },
 ];

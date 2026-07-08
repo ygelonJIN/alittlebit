@@ -4,22 +4,16 @@ import './MarkdownEditor.css';
 
 interface Props {
   isReadOnly: boolean;
+  onCursorMove?: (line: number, col: number) => void;
 }
 
-export default function MarkdownEditor({ isReadOnly }: Props) {
+export default function MarkdownEditor({ isReadOnly, onCursorMove }: Props) {
   const lines = useStore((s) => s.lines);
   const selectLine = useStore((s) => s.selectLine);
-  const activeLineId = useStore((s) => s.activeLineId);
   const setEditorLines = useStore((s) => s.setEditorLines);
-  const activeFileId = useStore((s) => s.activeFileId);
-  const files = useStore((s) => s.files);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
-
-  const activeFile = files.find((f) => f.id === activeFileId);
-  const fileName = activeFile?.name ?? 'untitled';
-  const activeLine = lines.find((l) => l.id === activeLineId);
 
   const text = lines.map((l) => l.text).join('\n');
 
@@ -51,6 +45,9 @@ export default function MarkdownEditor({ isReadOnly }: Props) {
     const lineIdx = textBefore.split('\n').length - 1;
     const targetLine = lines[lineIdx];
     if (targetLine) selectLine(targetLine.id);
+    const lastNewline = textBefore.lastIndexOf('\n');
+    const col = pos - lastNewline;
+    onCursorMove?.(lineIdx + 1, col);
   };
 
   useEffect(() => {
@@ -62,15 +59,7 @@ export default function MarkdownEditor({ isReadOnly }: Props) {
 
   return (
     <div className="editor">
-      <div className="editor-toolbar">
-        <span>
-          {fileName}
-          {isReadOnly && <span className="readonly-badge"> READ ONLY</span>}
-        </span>
-        <span>Ln {activeLine?.lineNumber ?? 1}, Col 1</span>
-      </div>
       <div className="editor-body">
-        <div className="editor-topfade" />
         <div className="editor-view">
           <div className="editor-gutter" ref={gutterRef}>
             {gutterNumbers.map((n) => (

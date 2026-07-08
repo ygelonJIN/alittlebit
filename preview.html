@@ -1,0 +1,835 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>alittlebit 聊天区预览</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --panel: rgba(255, 255, 255, 0.82);
+      --panel-strong: #ffffff;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --line: rgba(148, 163, 184, 0.22);
+      --primary: #4f46e5;
+      --primary-soft: rgba(79, 70, 229, 0.12);
+      --green: #16a34a;
+      --green-soft: rgba(22, 163, 74, 0.12);
+      --yellow: #d97706;
+      --yellow-soft: rgba(217, 119, 6, 0.12);
+      --red: #dc2626;
+      --red-soft: rgba(220, 38, 38, 0.12);
+      --shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+      --radius: 20px;
+      --radius-sm: 14px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(99, 102, 241, 0.12), transparent 28%),
+        radial-gradient(circle at top right, rgba(16, 185, 129, 0.10), transparent 22%),
+        linear-gradient(180deg, #f8fafc 0%, #f5f7fb 100%);
+      color: var(--text);
+    }
+
+    .page {
+      min-height: 100vh;
+      padding: 28px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .shell {
+      width: 100%;
+      max-width: 1280px;
+      display: grid;
+      grid-template-columns: 320px 1fr 340px;
+      gap: 20px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .panel-title {
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .badge {
+      font-size: 12px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(79, 70, 229, 0.10);
+      color: var(--primary);
+      border: 1px solid rgba(79, 70, 229, 0.12);
+      font-weight: 600;
+    }
+
+    .badge.green {
+      background: var(--green-soft);
+      color: var(--green);
+      border-color: rgba(22, 163, 74, 0.15);
+    }
+
+    .badge.yellow {
+      background: var(--yellow-soft);
+      color: var(--yellow);
+      border-color: rgba(217, 119, 6, 0.15);
+    }
+
+    .badge.gray {
+      background: rgba(100, 116, 139, 0.10);
+      color: #64748b;
+      border-color: rgba(100, 116, 139, 0.14);
+    }
+
+    .panel-body {
+      padding: 16px 18px 18px;
+    }
+
+    .chat-column {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-height: 80vh;
+    }
+
+    .message {
+      background: var(--panel-strong);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05);
+      overflow: hidden;
+    }
+
+    .message-meta {
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(248, 250, 252, 0.9), rgba(255,255,255,0.7));
+    }
+
+    .speaker {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+    }
+
+    .avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: white;
+      font-weight: 800;
+      font-size: 13px;
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      box-shadow: 0 10px 24px rgba(79, 70, 229, 0.25);
+    }
+
+    .time {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .message-content {
+      padding: 18px;
+    }
+
+    .section {
+      margin-bottom: 16px;
+    }
+
+    .section:last-child {
+      margin-bottom: 0;
+    }
+
+    .section-title {
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .section-title::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--primary);
+      box-shadow: 0 0 0 4px var(--primary-soft);
+    }
+
+    .confirmed-box,
+    .gap-box,
+    .next-box {
+      border-radius: 18px;
+      padding: 14px 14px 12px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,250,252,0.84));
+    }
+
+    .confirmed-box {
+      border-left: 4px solid var(--green);
+    }
+
+    .gap-box {
+      border-left: 4px solid var(--yellow);
+    }
+
+    .next-box {
+      border-left: 4px solid var(--primary);
+    }
+
+    .list {
+      margin: 0;
+      padding-left: 18px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .list li {
+      line-height: 1.55;
+      color: #334155;
+    }
+
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .tag {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(79, 70, 229, 0.08);
+      color: var(--primary);
+      border: 1px solid rgba(79, 70, 229, 0.10);
+    }
+
+    .question-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .question-card {
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(248,250,252,0.78));
+      overflow: hidden;
+    }
+
+    .question-top {
+      padding: 14px 14px 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .question-index {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+    }
+
+    .question-index .num {
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      background: rgba(79, 70, 229, 0.10);
+      color: var(--primary);
+    }
+
+    .question-title {
+      margin: 4px 0 0;
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.5;
+    }
+
+    .question-note {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    .question-top-right {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+    }
+
+    .question-type {
+      font-size: 12px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.05);
+      color: #475569;
+      font-weight: 600;
+    }
+
+    .question-type.multiple {
+      background: rgba(22, 163, 74, 0.10);
+      color: var(--green);
+    }
+
+    .question-type.single {
+      background: rgba(79, 70, 229, 0.10);
+      color: var(--primary);
+    }
+
+    .question-options {
+      padding: 12px 12px 14px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .option {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 12px 12px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      cursor: pointer;
+      transition: 0.18s ease;
+      background: white;
+    }
+
+    .option:hover {
+      transform: translateY(-1px);
+      border-color: rgba(79, 70, 229, 0.28);
+      box-shadow: 0 10px 24px rgba(79, 70, 229, 0.08);
+    }
+
+    .option input {
+      margin-top: 3px;
+      accent-color: var(--primary);
+    }
+
+    .option-main {
+      flex: 1;
+    }
+
+    .option-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+    }
+
+    .opt-label {
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .opt-pill {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: rgba(79, 70, 229, 0.08);
+      color: var(--primary);
+      border: 1px solid rgba(79, 70, 229, 0.10);
+      font-weight: 700;
+    }
+
+    .opt-pill.recommended {
+      background: rgba(22, 163, 74, 0.10);
+      color: var(--green);
+      border-color: rgba(22, 163, 74, 0.14);
+    }
+
+    .opt-desc {
+      color: #475569;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .option.selected {
+      border-color: rgba(79, 70, 229, 0.40);
+      background: linear-gradient(180deg, rgba(79, 70, 229, 0.06), rgba(255,255,255,1));
+    }
+
+    .option.selected .opt-label {
+      color: var(--primary);
+    }
+
+    .composer {
+      display: flex;
+      gap: 10px;
+      padding: 16px 18px 18px;
+      border-top: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,0.60), rgba(248,250,252,0.92));
+    }
+
+    .composer input {
+      flex: 1;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px 14px;
+      outline: none;
+      font-size: 14px;
+      background: white;
+      color: var(--text);
+    }
+
+    .composer input:focus {
+      border-color: rgba(79, 70, 229, 0.40);
+      box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.10);
+    }
+
+    .composer button {
+      border: none;
+      border-radius: 16px;
+      padding: 0 18px;
+      font-weight: 700;
+      color: white;
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      cursor: pointer;
+      box-shadow: 0 12px 28px rgba(79, 70, 229, 0.24);
+    }
+
+    .composer button:active {
+      transform: translateY(1px);
+    }
+
+    .side-stack {
+      display: grid;
+      gap: 20px;
+    }
+
+    .mini-card {
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(248,250,252,0.84));
+      border: 1px solid var(--line);
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(15, 23, 42, 0.03);
+    }
+
+    .status-row strong {
+      font-weight: 700;
+    }
+
+    .status-row span {
+      color: var(--muted);
+    }
+
+    .progress {
+      height: 10px;
+      background: rgba(148, 163, 184, 0.18);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .progress-bar {
+      width: 58%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #4f46e5, #16a34a);
+    }
+
+    .log-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .log-item {
+      padding: 12px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: white;
+    }
+
+    .log-item-title {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .log-item-desc {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    @media (max-width: 1180px) {
+      .shell {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="shell">
+      <!-- 左侧：状态区 -->
+      <aside class="panel">
+        <div class="panel-header">
+          <div class="panel-title">文档状态</div>
+          <span class="badge yellow">PRD 灰灯</span>
+        </div>
+        <div class="panel-body">
+          <div class="mini-card">
+            <div class="status-row">
+              <strong>当前文档</strong>
+              <span>PRD / prd.md</span>
+            </div>
+            <div class="status-row">
+              <strong>当前阶段</strong>
+              <span>collecting</span>
+            </div>
+            <div class="status-row">
+              <strong>锁定状态</strong>
+              <span>未锁定</span>
+            </div>
+            <div class="progress">
+              <div class="progress-bar"></div>
+            </div>
+            <div class="hint">
+              灰灯表示继续追问。黄灯表示接近完成。绿灯表示锁定，不再追问。
+            </div>
+          </div>
+
+          <div class="mini-card" style="margin-top: 16px;">
+            <div class="panel-title" style="font-size: 14px;">文档链进度</div>
+            <div class="log-list">
+              <div class="log-item">
+                <div class="log-item-title">PRD <span class="badge gray" style="margin-left:8px;">灰</span></div>
+                <div class="log-item-desc">当前正在补齐产品目标、范围和关键约束。</div>
+              </div>
+              <div class="log-item">
+                <div class="log-item-title">Features <span class="badge gray" style="margin-left:8px;">灰</span></div>
+                <div class="log-item-desc">等待 PRD 收口后自动进入。</div>
+              </div>
+              <div class="log-item">
+                <div class="log-item-title">Rules <span class="badge gray" style="margin-left:8px;">灰</span></div>
+                <div class="log-item-desc">等待功能拆解后进入规则约束阶段。</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 中间：聊天区 -->
+      <main class="chat-column">
+        <section class="message">
+          <div class="message-meta">
+            <div class="speaker">
+              <div class="avatar">AI</div>
+              <div>
+                <div>alittlebit</div>
+                <div style="font-size:12px;color:var(--muted);font-weight:500;">文档收敛引擎</div>
+              </div>
+            </div>
+            <div class="time">10:24</div>
+          </div>
+          <div class="message-content">
+            <div class="section">
+              <div class="section-title">当前理解</div>
+              <div class="confirmed-box">
+                <ul class="list">
+                  <li><strong>已确认：</strong>你正在完善 PRD 的产品目标部分。</li>
+                  <li><strong>已确认：</strong>当前文档处于收集阶段，尚未锁定。</li>
+                  <li><strong>推断：</strong>这个项目需要一个可衡量、可追踪的产品目标。</li>
+                  <li><strong>待定：</strong>项目背景、目标用户与成功指标还不完整。</li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-title">缺口分析</div>
+              <div class="gap-box">
+                <ul class="list">
+                  <li>目标目前还偏抽象，需要具体到业务目标或产品指标。</li>
+                  <li>缺少目标用户和核心场景，导致目标无法收敛到真实使用结果。</li>
+                  <li>还没有明确的量化指标，无法判断产品是否达成预期。</li>
+                </ul>
+                <div class="tags">
+                  <span class="tag">目标不具体</span>
+                  <span class="tag">缺少场景</span>
+                  <span class="tag">缺少指标</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="section">
+              <div class="section-title">下一步</div>
+              <div class="next-box">
+                <ul class="list">
+                  <li>先确认项目背景：解决痛点 / 抓住机会 / 技术升级。</li>
+                  <li>再确认目标用户和核心场景。</li>
+                  <li>最后补 1-2 个最核心的成功指标。</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="composer">
+            <input type="text" placeholder="请输入你的回答，例如：这是一个解决效率问题的内部工具..." />
+            <button>发送</button>
+          </div>
+        </section>
+
+        <!-- 问题卡片 -->
+        <section class="message">
+          <div class="message-meta">
+            <div class="speaker">
+              <div class="avatar" style="background:linear-gradient(135deg,#0f766e,#14b8a6);">Q</div>
+              <div>
+                <div>本轮问题</div>
+                <div style="font-size:12px;color:var(--muted);font-weight:500;">请选择或补充说明</div>
+              </div>
+            </div>
+            <span class="badge yellow">3 个问题</span>
+          </div>
+
+          <div class="message-content" style="display:grid; gap:14px;">
+            <div class="question-card">
+              <div class="question-top">
+                <div>
+                  <div class="question-index"><span class="num">1</span> 项目背景与核心价值</div>
+                  <div class="question-title">这个项目主要是为了解决业务痛点、抓住市场机会，还是做技术升级？</div>
+                  <div class="question-note">请选择最接近的一项，或补充说明你的真实背景。</div>
+                </div>
+                <div class="question-top-right">
+                  <div class="question-type single">单选</div>
+                  <div class="badge green">推荐 A</div>
+                </div>
+              </div>
+              <div class="question-options">
+                <label class="option selected">
+                  <input type="radio" name="q1" checked />
+                  <div class="option-main">
+                    <div class="option-head">
+                      <span class="opt-label">A. 业务痛点</span>
+                      <span class="opt-pill recommended">推荐</span>
+                    </div>
+                    <div class="opt-desc">用于优化现有流程、降低成本、提升效率或减少错误。</div>
+                  </div>
+                </label>
+
+                <label class="option">
+                  <input type="radio" name="q1" />
+                  <div class="option-main">
+                    <div class="option-head">
+                      <span class="opt-label">B. 市场机会</span>
+                    </div>
+                    <div class="opt-desc">用于进入新市场、满足新用户需求、验证新产品方向。</div>
+                  </div>
+                </label>
+
+                <label class="option">
+                  <input type="radio" name="q1" />
+                  <div class="option-main">
+                    <div class="option-head">
+                      <span class="opt-label">C. 技术升级 / 重构</span>
+                    </div>
+                    <div class="opt-desc">用于替换旧系统、提高稳定性、改善可维护性或重构架构。</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <div class="question-card">
+              <div class="question-top">
+                <div>
+                  <div class="question-index"><span class="num">2</span> 目标用户与核心场景</div>
+                  <div class="question-title">最主要的目标用户是谁，他们最常见的使用场景是什么？</div>
+                  <div class="question-note">可多选，也可以写一句话说明。</div>
+                </div>
+                <div class="question-top-right">
+                  <div class="question-type multiple">多选</div>
+                </div>
+              </div>
+              <div class="question-options">
+                <label class="option selected">
+                  <input type="checkbox" checked />
+                  <div class="option-main">
+                    <div class="option-head">
+                      <span class="opt-label">A. 企业内部员工</span>
+                    </div>
+                    <div class="opt-desc">例如运营、产品、客服、管理者等使用内部效率工具。</div>
+                  </div>
+                </label>
+
+                <label class="option">
+                  <input type="checkbox" />
+                  <div class="option-main">
+                    <div class="option-head">
+                      <span class="opt-label">B. 普通消费者</span>
+                    </div>
+                    <div class="opt-desc">面向 C 端用户，关注易用性、转化率和体验。</div>
+                  </div>
+                </label>
+
+                <label class="option">
+                  <input type="checkbox" />
+                  <div class="option-main">
+                    <div class="option-head">
+                      <span class="opt-label">C. 开发者 / 技术用户</span>
+                    </div>
+                    <div class="opt-desc">面向工程师、集成方或需要配置/接入系统的用户。</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <div class="question-card">
+              <div class="question-top">
+                <div>
+                  <div class="question-index"><span class="num">3</span> 成功的量化指标</div>
+                  <div class="question-title">你最关心哪 1-2 个核心指标来判断成功？</div>
+                  <div class="question-note">建议优先选择可衡量、可验证的指标。</div>
+                </div>
+                <div class="question-top-right">
+                  <div class="question-type single">单选</div>
+                  <div class="badge yellow">待确认</div>
+                </div>
+
+</div>
+<div class="question-options">
+<label class="option">
+<input type="radio" name="q3" />
+<div class="option-main">
+<div class="option-head">
+<span class="opt-label">A. 核心功能完成率</span>
+</div>
+<div class="opt-desc">例如从 60% 提升到 90%，适合衡量功能闭环。</div>
+</div>
+</label>
+<label class="option selected">
+<input type="radio" name="q3" checked />
+<div class="option-main">
+<div class="option-head">
+<span class="opt-label">B. 用户操作效率</span>
+<span class="opt-pill recommended">推荐</span>
+</div>
+<div class="opt-desc">例如平均操作时长从 5 分钟降低到 2 分钟。</div>
+</div>
+</label>
+<label class="option">
+<input type="radio" name="q3" />
+<div class="option-main">
+<div class="option-head">
+<span class="opt-label">C. 用户满意度 / NPS</span>
+</div>
+<div class="opt-desc">适合衡量体验和接受度，但通常建议搭配其他指标。</div>
+</div>
+</label>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- 右侧：辅助信息 -->
+<aside class="side-stack">
+<section class="panel">
+<div class="panel-header">
+<div class="panel-title">版本信息</div>
+<span class="badge gray">v0 / draft</span>
+</div>
+<div class="panel-body">
+<div class="log-list">
+<div class="log-item">
+<div class="log-item-title">已确认</div>
+<div class="log-item-desc">当前文档为 PRD，正在收集产品目标。</div>
+</div>
+<div class="log-item">
+<div class="log-item-title">待定</div>
+<div class="log-item-desc">项目背景、用户、成功指标仍需补齐。</div>
+</div>
+<div class="log-item">
+<div class="log-item-title">建议动作</div>
+<div class="log-item-desc">先回答三组问题，再进入下一个阶段。</div>
+</div>
+</div>
+</div>
+</section>
+<section class="panel">
+<div class="panel-header">
+<div class="panel-title">暂存区</div>
+<span class="badge yellow">2 条</span>
+</div>
+<div class="panel-body">
+<div class="log-list">
+<div class="log-item">
+<div class="log-item-title">Features / F-003</div>
+<div class="log-item-desc">建议增加导出 Markdown 功能，暂未确认是否本版本必做。</div>
+</div>
+<div class="log-item">
+<div class="log-item-title">Rules / 安全规范</div>
+<div class="log-item-desc">需要后续确认是否需要 API Key 加密存储。</div>
+</div>
+</div>
+</div>
+</section>
+</aside>
+</div>
+</div>
+</body>
+</html>

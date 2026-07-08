@@ -61,10 +61,16 @@ function filesPlugin(): Plugin {
             const dstDir = path.join(OUTPUT_DIR, 'versions', toVersion);
             if (!fs.existsSync(srcDir)) { res.statusCode = 404; res.end(JSON.stringify({ error: 'source not found' })); return; }
             fs.mkdirSync(dstDir, { recursive: true });
-            const files = fs.readdirSync(srcDir);
-            for (const f of files) {
-              fs.copyFileSync(path.join(srcDir, f), path.join(dstDir, f));
+            // Recursively copy all files and subdirs
+            function copyDir(src: string, dst: string) {
+              fs.mkdirSync(dst, { recursive: true });
+              const items = fs.readdirSync(src, { withFileTypes: true });
+              for (const item of items) {
+                if (item.isDirectory()) copyDir(path.join(src, item.name), path.join(dst, item.name));
+                else fs.copyFileSync(path.join(src, item.name), path.join(dst, item.name));
+              }
             }
+            copyDir(srcDir, dstDir);
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ ok: true }));
           } catch (e: any) {
@@ -92,11 +98,14 @@ function filesPlugin(): Plugin {
 
             // Directories
             const verDir = path.join(OUTPUT_DIR, 'versions', versionId);
+            const bDir = path.join(verDir, 'b');
+            const aDir = path.join(verDir, 'a');
+            const cDir = path.join(verDir, 'c');
             const diffsDir = path.join(OUTPUT_DIR, 'diffs');
             const logsDir = path.join(OUTPUT_DIR, 'logs');
             const currentDir = path.join(OUTPUT_DIR, 'current');
             const archiveDir = path.join(OUTPUT_DIR, 'archive');
-            for (const d of [verDir, diffsDir, logsDir, currentDir, archiveDir]) fs.mkdirSync(d, { recursive: true });
+            for (const d of [verDir, aDir, bDir, cDir, diffsDir, logsDir, currentDir, archiveDir]) fs.mkdirSync(d, { recursive: true });
 
             const bodyText = lines.map((l: any) => l.text).join('\n');
             const msgs = messages || [];
@@ -212,14 +221,14 @@ function filesPlugin(): Plugin {
               '- 已冻结项: 无',
               '',
               '## 文件指向',
-              '- 主文件: body.md',
-              '- 差异文件: ' + (prevVersion ? 'diff_' + prevVersion + '_to_' + versionId + '.md' : 'diff_v0_to_' + versionId + '.md'),
-              '- 日志文件: change_log.md',
-              '- 冻结摘要: 尚未冻结',
+              '- 主文件: b/body.md',
+              '- 差异文件: c/' + (prevVersion ? 'diff_' + prevVersion + '_to_' + versionId + '.md' : 'diff_v0_to_' + versionId + '.md'),
+              '- 日志文件: b/change_log.md',
+              '- 锁定摘要: b/lock_summary.md',
               '- 归档位置: 尚未归档',
               '',
               '## 状态判断',
-              '- 是否冻结: 否',
+              '- 是否锁定: 否',
               '- 是否归档: 否',
               '- 是否允许继续推进: 是',
               '',
@@ -258,16 +267,16 @@ function filesPlugin(): Plugin {
               '模板类型: 变更日志模板 (11.4)',
             ].join('\n');
 
-            // ── 冻结摘要模板 (stub, filled on locklock) ──
+            // ── 锁定摘要模板 (stub, filled on locklock) ──
             const freezeStub = [
               '# Freeze Summary',
               '',
-              '## 冻结信息',
-              '- 冻结版本号: ' + versionId,
-              '- 冻结时间: 尚未冻结',
-              '- 冻结原因: 尚未冻结',
+              '## 锁定信息',
+              '- 锁定版本号: ' + versionId,
+              '- 锁定时间: 尚未锁定',
+              '- 锁定原因: 尚未锁定',
               '',
-              '## 冻结前检查',
+              '## 锁定前检查',
               '- 主文件是否完成: 是',
               '- 摘要是否完成: 是',
               '- 日志是否完成: 是',
@@ -275,7 +284,7 @@ function filesPlugin(): Plugin {
               '- 索引是否完成: 是',
               '',
               '## 确认结果',
-              '- 用户确认项: 待冻结时确认',
+              '- 用户确认项: 待锁定时确认',
               '- 系统推断项处理结果: 待处理',
               '- 暂存项处理结果: 待处理',
               '',
@@ -285,51 +294,122 @@ function filesPlugin(): Plugin {
               '- 是否允许派生新版本: 是',
               '',
               '---',
-              '模板类型: 冻结摘要模板 (11.5)',
+              '模板类型: 锁定摘要模板 (11.5)',
             ].join('\n');
 
             // Write in spec order: body → summary → log → index → diff
             const files: string[] = [];
 
-            fs.writeFileSync(path.join(verDir, 'body.md'), bodyText);
-            files.push('body.md');
+            fs.writeFileSync(path.join(bDir, 'body.md'), bodyText);
+            files.push('b/body.md');
 
-            fs.writeFileSync(path.join(verDir, 'version_summary.md'), summary);
-            files.push('version_summary.md');
+            fs.writeFileSync(path.join(bDir, 'version_summary.md'), summary);
+            files.push('b/version_summary.md');
 
-            fs.writeFileSync(path.join(verDir, 'change_log.md'), changeLog);
-            files.push('change_log.md');
+            fs.writeFileSync(path.join(bDir, 'change_log.md'), changeLog);
+            files.push('b/change_log.md');
 
-            fs.writeFileSync(path.join(verDir, 'question_log.md'), qlogText);
-            files.push('question_log.md');
+            fs.writeFileSync(path.join(bDir, 'question_log.md'), qlogText);
+            files.push('b/question_log.md');
 
-            fs.writeFileSync(path.join(verDir, 'confirmation_log.md'), clogText);
-            files.push('confirmation_log.md');
+            fs.writeFileSync(path.join(bDir, 'confirmation_log.md'), clogText);
+            files.push('b/confirmation_log.md');
 
-            fs.writeFileSync(path.join(verDir, 'freeze_summary.md'), freezeStub);
-            files.push('freeze_summary.md');
+            fs.writeFileSync(path.join(bDir, 'lock_summary.md'), freezeStub);
+            files.push('b/lock_summary.md');
 
             // diff
             const diffName = prevVersion ? 'diff_' + prevVersion + '_to_' + versionId + '.md' : 'diff_v0_to_' + versionId + '.md';
             const diffContent = [
-              '# ' + title + ' 差异文件',
+              '# Diff：' + (prevVersion ?? 'v0') + ' → ' + versionId,
               '',
-              '## 差异信息',
-              '- 来源版本: ' + (prevVersion ?? 'v0'),
-              '- 目标版本: ' + versionId,
-              '- 变更类型: 新增',
+              '## 1. 文档信息',
+              '- Diff 编号：DIFF-' + versionId,
+              '- 来源版本：' + (prevVersion ?? 'v0'),
+              '- 目标版本：' + versionId,
+              '- 变更对象：b/ 目录下全部治理文档 + current/latest_plan.md + diffs/',
+              '- 关联文档：b/body.md / b/version_summary / b/change_log / b/question_log / b/confirmation_log / b/lock_summary',
+              '- 生成时间：' + now,
+              '- 状态：confirmed',
               '',
-              '## 变更说明',
-              '- 新建版本目录: versions/' + versionId + '/',
-              '- 生成模板化文件: version_summary/change_log/question_log/confirmation_log/freeze_summary/body',
-              '- 同步更新 diffs/、logs/、current/',
+              '## 2. 变更摘要',
+              '- 变更类型总览：新增',
+              '- 变更数量：6',
+              '- 是否影响主流程：否',
+              '- 是否影响锁定条件：否',
+              '- 是否影响历史版本引用关系：否',
+              '- 是否影响索引：是',
+              '- 是否需要生成新差异文件：否（本文件即为差异文件）',
               '',
-              '## 影响范围',
-              '- 版本链: ' + (prevVersion ?? 'v0') + ' → ' + versionId,
+              '## 3. 详细变更项',
+              '',
+              '### 3.1 新增',
+              '- 变更对象：b/ 目录',
+              '- 变更前：无',
+              '- 变更后：新建版本目录 versions/' + versionId + '/b/',
+              '- 新建文件：body.md',
+              '- 新建文件：version_summary.md',
+              '- 新建文件：change_log.md',
+              '- 新建文件：question_log.md',
+              '- 新建文件：confirmation_log.md',
+              '- 新建文件：lock_summary.md',
+              '',
+              '### 3.2 修改',
+              '- 无',
+              '',
+              '### 3.3 删除',
+              '- 无',
+              '',
+              '### 3.4 重构',
+              '- 无',
+              '',
+              '### 3.5 澄清',
+              '- 无',
+              '',
+              '## 4. 变更原因',
+              '- 用户对话收敛完成，生成正式版本治理文档',
+              '',
+              '## 5. 影响分析',
+              '### 5.1 对正文的影响',
+              '- 正文已生成至 b/body.md',
+              '',
+              '### 5.2 对摘要的影响',
+              '- 版本摘要已生成至 b/version_summary.md，指向当前版本',
+              '',
+              '### 5.3 对日志的影响',
+              '- 变更日志已记录至 b/change_log.md',
+              '- 问答日志已记录至 b/question_log.md',
+              '- 确认日志已记录至 b/confirmation_log.md',
+              '',
+              '### 5.4 对索引的影响',
+              '- 主入口索引 current/latest_plan.md 已更新为当前版本',
+              '',
+              '### 5.5 对历史版本的影响',
+              '- 是否影响历史版本引用关系：否（首次生成，无历史引用）',
+              '',
+              '### 5.6 对锁定 / lock 的影响',
+              '- 是否允许锁定：是（满足硬门槛后）',
+              '- 是否需要延期锁定：否',
+              '- 是否需要重新确认：否',
+              '',
+              '## 6. 同步更新结果',
+              '- 正文：已更新',
+              '- 摘要：已更新',
+              '- 日志：已更新',
+              '- 索引：已更新',
+              '- 差异文件：本文件',
+              '',
+              '## 7. 决策记录',
+              '- 决策 1：用户触发生成版本文件，所有 B 类治理文档已产出至 b/',
+              '',
+              '## 8. 后续动作',
+              '- 确认版本内容无误后可执行 locklock 锁定',
+              '- 锁定后自动归档至 archive/',
+              '- 可基于锁定版本派生新版本继续迭代',
             ].join('\n');
-            fs.writeFileSync(path.join(verDir, diffName), diffContent);
+            fs.writeFileSync(path.join(cDir, diffName), diffContent);
             fs.writeFileSync(path.join(diffsDir, diffName), diffContent);
-            files.push(diffName);
+            files.push('c/' + diffName);
 
             // latest_plan.md
             const index = [
@@ -343,7 +423,7 @@ function filesPlugin(): Plugin {
               '- 版本目录入口: versions/' + versionId + '/',
               '- 差异文件入口: diffs/' + diffName,
               '- 历史版本入口: versions/',
-              '- 冻结版本入口: 无',
+              '- 锁定版本入口: 无',
               '- 最后更新: ' + now,
               '- 是否允许继续推进: 是',
             ].join('\n');
@@ -378,25 +458,26 @@ function filesPlugin(): Plugin {
           try {
             const { versionId } = JSON.parse(body);
             const verDir = path.join(OUTPUT_DIR, 'versions', versionId);
-            // Check prerequisites
+            const bDir = path.join(verDir, 'b');
+            // Check prerequisites in b/
             const required = ['version_summary.md', 'body.md', 'change_log.md', 'question_log.md', 'confirmation_log.md'];
-            const missing = required.filter((f) => !fs.existsSync(path.join(verDir, f)));
+            const missing = required.filter((f) => !fs.existsSync(path.join(bDir, f)));
             if (missing.length > 0) {
               res.statusCode = 400;
               res.end(JSON.stringify({ ok: false, missing, error: '硬门槛未满足：缺少文件 ' + missing.join(', ') }));
               return;
             }
             const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
-            // ── 11.5 冻结摘要模板 ──
+            // ── 11.5 锁定摘要模板 ──
             const freezeFinal = [
               '# Freeze Summary',
               '',
-              '## 冻结信息',
-              '- 冻结版本号: ' + versionId,
-              '- 冻结时间: ' + now,
-              '- 冻结原因: 用户确认锁定',
+              '## 锁定信息',
+              '- 锁定版本号: ' + versionId,
+              '- 锁定时间: ' + now,
+              '- 锁定原因: 用户确认锁定',
               '',
-              '## 冻结前检查',
+              '## 锁定前检查',
               '- 主文件是否完成: ✓',
               '- 摘要是否完成: ✓',
               '- 日志是否完成: ✓',
@@ -414,14 +495,47 @@ function filesPlugin(): Plugin {
               '- 是否允许派生新版本: 是',
               '',
               '---',
-              '模板类型: 冻结摘要模板 (11.5)',
+              '模板类型: 锁定摘要模板 (11.5)',
             ].join('\n');
-            fs.writeFileSync(path.join(verDir, 'freeze_summary.md'), freezeFinal);
-            // Move to archive
+            fs.writeFileSync(path.join(bDir, 'lock_summary.md'), freezeFinal);
+            // Copy entire version dir (a/ and b/ subdirs) to archive
             const archiveDir = path.join(OUTPUT_DIR, 'archive', versionId);
             fs.mkdirSync(archiveDir, { recursive: true });
-            const files = fs.readdirSync(verDir);
-            for (const f of files) fs.copyFileSync(path.join(verDir, f), path.join(archiveDir, f));
+            // Recursively copy version dir contents
+            function copyDir(src: string, dst: string) {
+              fs.mkdirSync(dst, { recursive: true });
+              const items = fs.readdirSync(src, { withFileTypes: true });
+              for (const item of items) {
+                if (item.isDirectory()) copyDir(path.join(src, item.name), path.join(dst, item.name));
+                else fs.copyFileSync(path.join(src, item.name), path.join(dst, item.name));
+              }
+            }
+            copyDir(verDir, archiveDir);
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ ok: true }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: e.message }));
+          }
+        });
+      });
+
+      // ── /api/files/write ──  overwrite existing file
+      server.middlewares.use('/api/files/write', (req, res) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        if (req.method === 'OPTIONS') { res.statusCode = 204; res.end(); return; }
+        if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+        let body = '';
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', () => {
+          try {
+            const { filePath, content } = JSON.parse(body);
+            if (!filePath || content === undefined) { res.statusCode = 400; res.end(JSON.stringify({ error: 'filePath and content required' })); return; }
+            const safePath = path.resolve(PROJECT_ROOT, path.normalize(filePath));
+            if (!safePath.startsWith(PROJECT_ROOT)) { res.statusCode = 403; res.end(JSON.stringify({ error: 'forbidden' })); return; }
+            fs.writeFileSync(safePath, content);
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ ok: true }));
           } catch (e: any) {

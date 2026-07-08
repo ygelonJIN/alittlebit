@@ -64,8 +64,98 @@
 
 .files {
   overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
+/* ── Group headers ── */
+.file-group {
+  border-bottom: 1px solid var(--line);
+}
+
+.group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border-left: 3px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.group-header:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.group-header .group-arrow {
+  font-size: 10px;
+  width: 14px;
+  text-align: center;
+  color: var(--muted);
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+/* ── Group header accent ── */
+.group-a .group-header,
+.group-b .group-header,
+.group-c .group-header,
+.group-d .group-header {
+  color: #c4b5fd;
+}
+.group-a .group-header:hover,
+.group-b .group-header:hover,
+.group-c .group-header:hover,
+.group-d .group-header:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+.group-a .group-header.expanded .group-arrow,
+.group-b .group-header.expanded .group-arrow,
+.group-c .group-header.expanded .group-arrow,
+.group-d .group-header.expanded .group-arrow {
+  color: #a78bfa;
+  transform: rotate(90deg);
+}
+
+/* ── Light pill (A group only, clickable) ── */
+.light-pill {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: #555;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.light-pill:hover {
+  background: #777;
+}
+.light-pill.light-green {
+  background: #28c840;
+  box-shadow: 0 0 4px rgba(40, 200, 64, 0.4);
+}
+.light-pill.light-yellow {
+  background: #febc2e;
+  box-shadow: 0 0 4px rgba(254, 188, 46, 0.4);
+}
+
+/* ── Child files ── */
+.file-child {
+  padding-left: 38px !important;
+}
+
+.file-child:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.file-child.active {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* ── Root-level files (no group) ── */
 .file-item {
   display: flex;
   align-items: center;
@@ -75,6 +165,7 @@
   color: var(--text-secondary);
   cursor: default;
   user-select: none;
+  border-left: 3px solid transparent;
 }
 
 .file-item:hover {
@@ -83,12 +174,14 @@
 
 .file-item.active {
   background: var(--accent-soft);
+  border-left-color: var(--accent);
 }
 
 .pill {
   width: 10px;
   height: 10px;
   border-radius: 2px;
+  flex-shrink: 0;
 }
 
 .pill.red    { background: #ff5f57; }
@@ -100,15 +193,23 @@
 .file-name {
   font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.group-header .file-name {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.file-child .file-name {
+  font-weight: 500;
 }
 
 .file-meta {
   margin-left: auto;
   font-size: 12px;
   color: var(--muted);
-}
-
-.folder-item {
-  color: var(--muted);
-  font-style: italic;
+  flex-shrink: 0;
 }
