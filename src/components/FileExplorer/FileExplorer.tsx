@@ -7,22 +7,14 @@ interface Props {
   files: FileItem[];
 }
 
-const TYPE_PILLS: Record<string, string> = {
-  md: 'green',
-  tsx: 'blue',
-  ts: 'blue',
-  css: 'purple',
-  json: 'yellow',
-  html: 'red',
-  js: 'yellow',
-  log: 'purple',
-  diff: 'red',
-};
-
 export default function FileExplorer({ files }: Props) {
   const activeFileId = useStore((s) => s.activeFileId);
   const selectFile = useStore((s) => s.selectFile);
   const createFile = useStore((s) => s.createFile);
+  const resetFile = useStore((s) => s.resetFile);
+  const deleteFile = useStore((s) => s.deleteFile);
+  const confirmAndExec = useStore((s) => s.confirmAndExec);
+  const pendingAction = useStore((s) => s.pendingAction);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -85,7 +77,7 @@ export default function FileExplorer({ files }: Props) {
         )}
         {groups.map((group) => {
           const isExpanded = expanded.has(group.id);
-          const groupClass = group.category === 'a' ? 'group-a' : group.category === 'b' ? 'group-b' : group.category === 'c' ? 'group-c' : 'group-d';
+          const groupClass = group.category === 'a' ? 'group-a' : group.category === 'b' ? 'group-b' : group.category === 'c' ? 'group-c' : group.category === 'x' ? 'group-x' : 'group-d';
           return (
             <div key={group.id} className={`file-group ${groupClass}`}>
               <div
@@ -96,13 +88,20 @@ export default function FileExplorer({ files }: Props) {
                 <span className="file-name">{group.name}</span>
                 <span className="file-meta">{group.children?.length ?? 0} files</span>
               </div>
-              {isExpanded && group.children?.map((f) => (
+              {isExpanded && group.children?.map((f) => {
+                const isActive = f.id === activeFileId;
+                const showReset = isActive && f.hasTemplate && f.light !== 'green';
+                const showDelete = isActive && f.createdByUser && f.light !== 'green';
+                const showLight = group.category === 'a' || group.category === 'x';
+                const confirmingReset = pendingAction?.id === f.id && pendingAction?.action === 'reset';
+                const confirmingDelete = pendingAction?.id === f.id && pendingAction?.action === 'delete';
+                return (
                 <div
                   key={f.id}
-                  className={`file-item file-child${f.id === activeFileId ? ' active' : ''}`}
+                  className={`file-item file-child${isActive ? ' active' : ''}`}
                   onClick={() => selectFile(f.id)}
                 >
-                  {group.category === 'a' ? (
+                  {showLight ? (
                     <span
                       className={`pill light-pill${f.light === 'green' ? ' light-green' : f.light === 'yellow' ? ' light-yellow' : ''}`}
                       onClick={(e) => { e.stopPropagation(); toggleLight(f.id); }}
@@ -110,9 +109,26 @@ export default function FileExplorer({ files }: Props) {
                     />
                   ) : null}
                   <span className="file-name">{f.name}</span>
-                  <span className="file-meta">{f.type}</span>
+                  {f.hasTemplate ? (
+                    <button
+                      className={`file-action-btn reset${confirmingReset ? ' confirming' : ''}`}
+                      style={{ visibility: showReset || confirmingReset ? 'visible' : 'hidden' }}
+                      onClick={(e) => { e.stopPropagation(); confirmAndExec(f.id, 'reset'); }}
+                      title={confirmingReset ? '再次点击确认重置' : '重置为模板内容'}
+                    >{confirmingReset ? '✓' : 'reset'}</button>
+                  ) : f.createdByUser ? (
+                    <button
+                      className={`file-action-btn delete${confirmingDelete ? ' confirming' : ''}`}
+                      style={{ visibility: showDelete || confirmingDelete ? 'visible' : 'hidden' }}
+                      onClick={(e) => { e.stopPropagation(); confirmAndExec(f.id, 'delete'); }}
+                      title={confirmingDelete ? '再次点击确认删除' : '删除文件'}
+                    >{confirmingDelete ? '✓' : 'delete'}</button>
+                  ) : (
+                    <span className="file-action-spacer" />
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           );
         })}
@@ -122,9 +138,7 @@ export default function FileExplorer({ files }: Props) {
             className={`file-item${f.id === activeFileId ? ' active' : ''}`}
             onClick={() => selectFile(f.id)}
           >
-            <span className={`pill ${TYPE_PILLS[f.type] ?? 'yellow'}`} />
             <span className="file-name">{f.name}</span>
-            <span className="file-meta">{f.type}</span>
           </div>
         ))}
       </div>

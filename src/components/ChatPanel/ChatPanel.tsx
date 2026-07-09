@@ -17,38 +17,45 @@ interface ParsedQuestion {
 }
 
 function parseQuestions(content: string): { restContent: string; questions: ParsedQuestion[] } {
-  const qMatch = content.match(/### 本轮问题\n([\s\S]*?)(?=\n### |$)/);
+  const qMatch = content.match(/### 本轮问题\n([\s\S]*?)(?=\n### |\n```json\b|$)/);
   if (!qMatch) return { restContent: content, questions: [] };
   const qBlock = qMatch[1];
   const restContent = content.replace(qMatch[0], '').trim();
 
-  const questions: ParsedQuestion[] = [];
-  let parts = qBlock.split(/\n(?=\d+\s*\n)/);
-  if (parts.length === 1) parts = qBlock.split(/\n(?=\d+[.)]\s)/);
+  // Split into blocks by question number boundaries (same approach as store.ts)
+  const rawLines = qBlock.split('\n');
+  const blocks: string[][] = [];
+  let cur: string[] = [];
+  for (const raw of rawLines) {
+    const t = raw.trim();
+    const isNumStart = /^\d+[.)、]?\s+/.test(t) || /^\d+\s*$/.test(t);
+    if (isNumStart && cur.length > 0) { blocks.push(cur); cur = [raw]; }
+    else { cur.push(raw); }
+  }
+  if (cur.length > 0) blocks.push(cur);
 
-  for (const part of parts) {
-    const lines = part.split('\n');
-    const firstLine = lines[0]?.trim() || '';
-    let questionText = '';
+  const questions: ParsedQuestion[] = [];
+  for (const block of blocks) {
+    const bl = block.map(l => l.trim()).filter(Boolean);
+    if (bl.length === 0) continue;
+    const idMatch = bl[0].match(/^(\d+)[.)、]?\s*(.*)$/);
+    if (!idMatch) continue; // skip blocks that don't start with a number
+
+    // Clean question text
+    let questionText = idMatch[2]
+      .replace(/\*\*/g, '').replace(/\*/g, '').replace(/^\.\s*/, '')
+      .replace(/^[-–•]\s*/, '').replace(/\s+/g, ' ').trim();
     let optStart = 1;
-    if (/^\d+$/.test(firstLine)) {
-      if (lines[1] && !/^[-–]\s*[A-C][.：)]/.test(lines[1].trim()) && !/^[A-C][.)]\s/.test(lines[1].trim())) {
-        questionText = lines[1].trim().replace(/^\d+\.\s*\**|\**$/g, '').trim();
-        optStart = 2;
-      } else {
-        questionText = '';
-        optStart = 1;
-      }
-    } else {
-      questionText = firstLine.replace(/^\d+\s*/, '').replace(/\*\*/g, '');
-      optStart = 1;
+    if (!questionText && bl.length > 1 && !/^[A-C][.：)]/.test(bl[1])) {
+      questionText = bl[1].replace(/\*\*/g, '').replace(/\*/g, '')
+        .replace(/^\.\s*/, '').replace(/^[-–•]\s*/, '').replace(/\s+/g, ' ').trim();
+      optStart = 2;
     }
-    if (!questionText && optStart === 1 && lines[1]) questionText = lines[1].trim().replace(/\*\*/g, '');
 
     const options: QuestionOption[] = [];
-    for (let i = optStart; i < lines.length; i++) {
-      const line = lines[i].trim();
-      if (!line) continue;
+    let hasSelfFill = false;
+    for (let i = optStart; i < bl.length; i++) {
+      const line = bl[i];
       const m = line.match(/^[-–]?\s*([A-C])[.：)]\s*(.+)/);
       if (m) {
         const rest = m[2];
@@ -56,15 +63,18 @@ function parseQuestions(content: string): { restContent: string; questions: Pars
         const label = descIdx > 0 ? rest.slice(0, descIdx).replace(/[，,]\s*$/, '').trim() : rest;
         const desc = descIdx > 0 ? rest.slice(descIdx) : '';
         options.push({ label: m[1] + '. ' + label, desc });
+      } else if (line === '自行填写' || line.startsWith('自行填写')) {
+        hasSelfFill = true;
       } else if (!questionText) {
-        questionText = line.replace(/\*\*/g, '');
+        questionText = line.replace(/\*\*/g, '').replace(/\*/g, '').trim();
       }
     }
-    // Add self-fill option
-    options.push({ label: '自行填写', desc: '输入你的答案' });
-    if (questionText || options.length > 0) {
-      questions.push({ text: (questionText || '(选项题)').replace(/^\d+[.)、\s]+/, '').replace(/^[-•*]\s*/, '').replace(/^\d+\.\s*$/, '').trim() || '(选项题)', options });
+    // Only add fallback if model didn't output it AND no self-fill in options
+    const hasSelfFillOpt = options.some(o => o.label.startsWith('自行填写'));
+    if (!hasSelfFill && !hasSelfFillOpt) {
+      options.push({ label: '自行填写', desc: '输入你的答案' });
     }
+    questions.push({ text: questionText, options });
   }
   return { restContent, questions };
 }
@@ -123,9 +133,8 @@ function QuestionCard({ questions, onSelectionChange, answersRef, customRef }: {
       <div className="questions-head">本轮问题 {questions.length} 个</div>
       {questions.map((q, i) => (
         <div key={i} className="question-card">
-          <div className="q-num">{i + 1}</div>
           <div className="q-main">
-            {q.text && <div className="q-text">{q.text}</div>}
+            {q.text && <div className="q-text">{i + 1}. {q.text}</div>}
             {q.options.length > 0 && (
               <div className="q-options">
                 {q.options.map((o, j) => {
@@ -216,7 +225,10 @@ export default function ChatPanel({ isReadOnly }: Props) {
       parts.push(`${Number(idx) + 1}. ${custom || ans.label}`);
     }
     if (parts.length > 0) {
-      setInputText(parts.join('\n'));
+      const text = parts.join('\n');
+      console.log('[chatPanel] ========== 用户点击「提交」==========');
+      console.log('[chatPanel] 提交内容:', text);
+      setInputText(text);
       setTimeout(() => sendMessage(), 50);
     }
   };
@@ -236,6 +248,14 @@ export default function ChatPanel({ isReadOnly }: Props) {
                   dangerouslySetInnerHTML={{ __html: renderMarkdown(restContent) }}
                 />
                 <QuestionCard questions={questions} onSelectionChange={setQuestionCompleted} answersRef={selectedAnswers} customRef={customRef} />
+                {m.questionGenMeta?.attempted && (
+                  <div className="qg-meta">
+                    {m.questionGenMeta.fillCount > 0 ? `已补缺 ${m.questionGenMeta.fillCount} 个` : ''}
+                    {m.questionGenMeta.retryCount > 0 ? `${m.questionGenMeta.fillCount > 0 ? ' · ' : ''}已重试 ${m.questionGenMeta.retryCount} 次` : ''}
+                    {m.questionGenMeta.finalStatus === 'failed' ? `${m.questionGenMeta.attempted ? ' · ' : ''}最终未达标` : ''}
+                    {m.questionGenMeta.warnings ? ` (${m.questionGenMeta.warnings})` : ''}
+                  </div>
+                )}
                 {m.protocol && (
                   <div className="debug-toggle" onClick={() => toggleMsg(m.id)}>
                     {expandedMsgs.has(m.id) ? '▾' : '▸'} 协议详情
@@ -245,6 +265,11 @@ export default function ChatPanel({ isReadOnly }: Props) {
                   <pre className="protocol-block">
                     {JSON.stringify(m.protocol, null, 2)}
                   </pre>
+                )}
+                {m.usage && (
+                  <div className="token-usage">
+                    提示词 {m.usage.prompt.toLocaleString()} + 补全 {m.usage.completion.toLocaleString()} = {m.usage.total.toLocaleString()} token
+                  </div>
                 )}
               </div>
             );
@@ -264,7 +289,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
           return (
             <div className="chat-actions">
               <button className="chat-submit-btn" disabled={isLoading || !canSubmit} onClick={handleSubmit}>提交</button>
-              <button className="chat-doc-btn" disabled={isLoading} onClick={() => generateVersionFiles(activeVersionId)}>写入文档</button>
+              <button className="chat-doc-btn" disabled={isLoading} onClick={() => { console.log('[chatPanel] ========== 用户点击「写入文档」=========='); generateVersionFiles(activeVersionId); }}>写入文档</button>
             </div>
           );
         })()}

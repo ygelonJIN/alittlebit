@@ -47,6 +47,43 @@ export interface AppState {
   createFile: (name: string) => Promise<void>;
   toggleLight: (fileId: string) => void;
   setLight: (fileId: string, light: 'gray' | 'green' | 'yellow') => void;
+  resetFile: (fileId: string) => Promise<void>;
+  deleteFile: (fileId: string) => Promise<void>;
+  deleteVersion: (versionId: string) => Promise<void>;
+  pendingAction: { id: string; action: 'reset' | 'delete' | 'deleteVer' } | null;
+  setPendingAction: (pa: { id: string; action: 'reset' | 'delete' | 'deleteVer' } | null) => void;
+  confirmAndExec: (id: string, action: 'reset' | 'delete' | 'deleteVer') => void;
+  questionGen: QuestionGenState | null;
+}
+
+// ── Question generation state machine ──
+type QuestionGenStatus = 'first' | 'filling' | 'retrying' | 'done' | 'failed';
+
+interface QuestionGenState {
+  status: QuestionGenStatus;
+  attempt: number;
+  targetCount: number;
+  actualCount: number;
+  fillCount: number;
+  warnings: string[];
+}
+
+interface ParsedQuestionBlock {
+  sectionText: string;
+  prefix: string;
+  suffix: string;
+  questions: { id: number; text: string; normalizedText: string }[];
+}
+
+interface QuestionValidation {
+  ok: boolean;
+  valid: { id: number; text: string }[];
+  missingIds: number[];
+  duplicateIds: { id: number; positions: number[] }[];
+  emptyTextIds: number[];
+  tooShortIds: number[];
+  outOfRangeIds: number[];
+  reason: string;
 }
 
 let msgCounter = 10;
@@ -111,7 +148,7 @@ const SYSTEM_PROMPT = [
   'Review 阶段优先补：问题、风险、规则偏差、验收对照',
   'Testing 阶段优先补：测试范围、重点场景、异常场景、回归项',
   'Change Management 阶段优先补：变更内容、影响、决策、同步项',
-  '你每轮提问应保持克制，优先 3 到 5 个问题。',
+  '每轮提问数量由运行时指令指定，严格遵守。',
   '',
   '==================================================',
   '五、灯状态规则',
@@ -163,7 +200,16 @@ const SYSTEM_PROMPT = [
   '- 继续追问 / 进入下一阶段 / 建议锁定 / 建议派生新版本',
   '',
   '### 本轮问题',
-  '{QUESTION_LIST}',
+  '格式要求：每个问题必须严格按以下示例格式输出：',
+  '',
+  '1',
+  '**这个项目的核心目标用户是谁？**',
+  '- A：普通消费者，追求简单易用',
+  '- B：企业用户，需要团队协作功能',
+  '- C：开发者，需要API和可扩展性',
+  '自行填写',
+  '',
+  '问题数量由运行时指令指定。不得输出空问题、不得用占位符替代选项。',
   '',
   '## 硬性格式约束',
   '- 以上 5 个段落（当前理解/缺口分析/状态判断/下一步/本轮问题）必须全部出现',
@@ -235,8 +281,8 @@ const SYSTEM_PROMPT = [
   '==================================================',
   '十三、结构化输出协议（必须严格遵守）',
   '==================================================',
-  '每轮回复末尾必须输出一段 JSON 协议块，用 ```json 和 ``` 包裹。前端将解析此 JSON 执行切文件、改灯、锁定等操作。',
-  '协议字段：',
+  '【这是你最重要的任务】每轮回复末尾必须输出 ```json 协议块，无一例外。即使本轮没有任何要写入的内容，也要输出包含空 writeActions 的完整协议。前端依赖此协议执行自动回填，缺失协议块等于本轮工作白做。',
+  '协议格式（严格按此结构）：',
   '{',
   '  "currentDocument": { "type": "文档类型", "file": "文件名", "status": "gray/yellow/green" },',
   '  "documentChain": [',
@@ -246,20 +292,19 @@ const SYSTEM_PROMPT = [
   '  "shouldAdvance": false,',
   '  "suggestedNextDocument": null,',
   '  "writeActions": [',
-  '    { "target": "PRD", "section": "8. 非功能需求", "content": "建议写入的内容" }',
+  '    { "targetFile": "a/01-prd.md", "operation": "upsert", "targetSection": "背景与概述", "content": "建议写入的内容" }',
   '  ],',
-  '  "temporaryActions": [',
-  '    { "target": "Features", "section": "F-003", "content": "暂存内容", "reason": "暂存原因" }',
-  '  ],',
+  '  "temporaryActions": [],',
   '  "questions": ["问题1", "问题2", "问题3"],',
-  '  "confirmations": ["本轮已确认内容1", "本轮已确认内容2"],',
-  '  "uiActions": {',
-  '    "selectFile": null,',
-  '    "setLight": null,',
-  '    "lockCurrentDocument": false',
-  '  }',
+  '  "confirmations": ["本轮已确认内容1"],',
+  '  "uiActions": { "selectFile": null, "setLight": null, "lockCurrentDocument": false }',
   '}',
   '重要规则：',
+  '- 每轮必带协议块，不管上下文是什么。用户选选项、简短回答、闲聊、任何情况都必须输出。',
+  '- writeActions.content 必须是具体可写入的文档正文，不是对话摘要，不是复述问题，不要写"用户选择了A"。',
+  '- 例如用户选了A选项"30次用完永久锁定"，你应该写：content: "猜错次数上限为30次，用完永久锁定，无法恢复。"',
+  '- targetSection 用文档中的原标题，如"2. 背景与概述""3. 问题定义""4. 目标"',
+  '- operation 推荐使用 upsert；同一 section 多轮对话应增量更新而不是整文件覆盖',
   '- shouldAdvance 为 true 时，必须同时设置 suggestedNextDocument 和 uiActions.selectFile',
   '- setLight 为 green 时，必须同时设置 lockCurrentDocument = true',
   '- 不确定内容走 temporaryActions，不得进 writeActions',
@@ -270,18 +315,212 @@ const SYSTEM_PROMPT = [
   '【阶段识别】: <draft|collecting|refining|confirmed>',
 ].join('\n');
 
-function buildPrompt(versions: any[], activeId: string, questionCount: number, files: FileItem[], activeFileId: string, snapshot: string): string {
+const STATIC_SYSTEM = SYSTEM_PROMPT;
+const B_TEMPLATE_FILES = new Set([
+  'body.md',
+  'version_summary.md',
+  'change_log.md',
+  'question_log.md',
+  'confirmation_log.md',
+  'lock_summary.md',
+]);
+
+function buildFileTree(data: any[]): FileItem[] {
+  const aChildren: FileItem[] = [];
+  const bChildren: FileItem[] = [];
+  const cChildren: FileItem[] = [];
+  const xChildren: FileItem[] = [];
+  const rootFiles: FileItem[] = [];
+
+  for (const f of data) {
+    if (f.type === 'folder' && f.name === 'a/') continue;
+    if (f.type === 'folder' && f.name === 'b/') continue;
+    if (f.type === 'folder' && f.name === 'c/') continue;
+    if (f.type === 'folder' && f.name === 'x/') continue;
+
+    if (f.name.startsWith('b/')) {
+      const shortName = f.name.slice(2);
+      if (B_TEMPLATE_FILES.has(shortName)) {
+        bChildren.push({ id: f.name, name: shortName, type: f.type as any, category: 'b' });
+      } else {
+        xChildren.push({ id: f.name, name: shortName, type: f.type as any, category: 'x', createdByUser: true, light: 'gray' });
+      }
+      continue;
+    }
+
+    if (f.name.startsWith('a/')) {
+      aChildren.push({ id: f.name, name: f.name.slice(2).replace(/^\d+-/, ''), type: f.type as any, category: 'a', light: 'gray', hasTemplate: true });
+      continue;
+    }
+
+    if (f.name.startsWith('c/')) {
+      cChildren.push({ id: f.name, name: f.name.slice(2), type: f.type as any, category: 'c' });
+      continue;
+    }
+
+    if (f.name.startsWith('x/')) {
+      xChildren.push({ id: f.name, name: f.name.slice(2), type: f.type as any, category: 'x', createdByUser: true, light: 'gray' });
+      continue;
+    }
+
+    rootFiles.push({ id: f.name, name: f.name, type: f.type as any });
+  }
+
+  const groups: FileItem[] = [];
+  if (xChildren.length > 0) {
+    groups.push({ id: 'group:x', name: 'X 自建文档', type: 'folder', category: 'x', children: xChildren });
+  }
+  groups.push({ id: 'group:a', name: 'A 核心产出文档', type: 'folder', category: 'a', children: aChildren });
+  groups.push({ id: 'group:b', name: 'B 治理文档', type: 'folder', category: 'b', children: bChildren });
+  groups.push({ id: 'group:c', name: 'C 差异文档', type: 'folder', category: 'c', children: cChildren });
+  groups.push({ id: 'group:d', name: 'D 主入口索引', type: 'folder', category: 'd', children: [{ id: 'current/latest_plan.md', name: 'latest_plan.md', type: 'md', category: 'd' }] });
+  return [...groups, ...rootFiles];
+}
+
+function findFileInTree(items: FileItem[], id: string): FileItem | undefined {
+  for (const f of items) {
+    if (f.id === id) return f;
+    if (f.children) {
+      const found = findFileInTree(f.children, id);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+function protocolHasRequiredFields(protocol: any): boolean {
+  return !!protocol && typeof protocol === 'object'
+    && protocol.currentDocument
+    && Array.isArray(protocol.documentChain)
+    && Array.isArray(protocol.writeActions)
+    && protocol.uiActions
+    && typeof protocol.shouldAdvance === 'boolean';
+}
+
+function normalizeTargetFile(targetFile: string, activeFileId: string, files: FileItem[]): string {
+  if (!targetFile) return activeFileId;
+  if (targetFile.includes('/')) return targetFile;
+
+  const activeFile = findFileInTree(files, activeFileId);
+  if (!activeFile) return activeFileId;
+
+  if (activeFile.category === 'a') {
+    const aGroup = files.find((f) => f.id === 'group:a');
+    const match = aGroup?.children?.find((f) => f.name === targetFile || f.id.endsWith('/' + targetFile));
+    if (match) return match.id;
+  }
+
+  if (activeFile.category === 'b') {
+    const bGroup = files.find((f) => f.id === 'group:b');
+    const match = bGroup?.children?.find((f) => f.name === targetFile || f.id.endsWith('/' + targetFile));
+    if (match) return match.id;
+  }
+
+  if (activeFile.category === 'c') {
+    const cGroup = files.find((f) => f.id === 'group:c');
+    const match = cGroup?.children?.find((f) => f.name === targetFile || f.id.endsWith('/' + targetFile));
+    if (match) return match.id;
+  }
+
+  if (activeFile.category === 'x') {
+    const xGroup = files.find((f) => f.id === 'group:x');
+    const match = xGroup?.children?.find((f) => f.name === targetFile || f.id.endsWith('/' + targetFile));
+    if (match) return match.id;
+  }
+
+  const sibling = activeFile.category
+    ? files.flatMap((g) => g.children ?? []).find((f) => f.category === activeFile.category && (f.name === targetFile || f.id.endsWith('/' + targetFile)))
+    : undefined;
+  return sibling?.id ?? activeFileId;
+}
+
+function mergeAContent(currentContent: string, action: any): string {
+  let instruction = typeof action?.content === 'string' ? action.content.trim() : '';
+  // Strip template artifacts: remove everything from the first stray ## section header onward
+  const strayHeaderIdx = instruction.search(/\n##\s/);
+  if (strayHeaderIdx > 0) {
+    const stripped = instruction.slice(0, strayHeaderIdx).trim();
+    console.log('[autoWrite] mergeAContent: 裁剪模板残渣, 原长度=', instruction.length, '裁剪后=', stripped.length);
+    instruction = stripped;
+  }
+  const section = typeof action?.targetSection === 'string' ? action.targetSection.trim() : '';
+  console.log('[autoWrite] mergeAContent: section=', section, 'instruction length=', instruction.length);
+  if (!instruction) { console.log('[autoWrite] mergeAContent: instruction 为空, 跳过'); return currentContent; }
+
+  if (!section) {
+    console.log('[autoWrite] mergeAContent: 无 targetSection, 插入首标题下');
+    return upsertUnderFirstHeading(currentContent, instruction);
+  }
+
+  // Split document by H2 headings, preserving heading lines
+  const heading = section.startsWith('#') ? section : '## ' + section;
+  const lines = currentContent.split('\n');
+  const sections: { heading: string; bodyLines: string[] }[] = [];
+  let curHeading = '';
+  let curBody: string[] = [];
+
+  for (const line of lines) {
+    if (/^##\s/.test(line)) {
+      if (curHeading) sections.push({ heading: curHeading, bodyLines: curBody });
+      curHeading = line;
+      curBody = [];
+    } else {
+      curBody.push(line);
+    }
+  }
+  if (curHeading) sections.push({ heading: curHeading, bodyLines: curBody });
+
+  // Find the target section
+  const idx = sections.findIndex(s => s.heading.trim() === heading.trim());
+  if (idx < 0) {
+    console.log('[autoWrite] mergeAContent: 未找到 section=', heading, ', 追加到末尾');
+    const base = currentContent.trim();
+    const block = heading + '\n' + instruction;
+    return base ? base + '\n\n' + block : block;
+  }
+
+  const existing = sections[idx].bodyLines.join('\n').trim();
+  console.log('[autoWrite] mergeAContent: 找到 section, existing length=', existing.length, 'includes instruction?', existing.includes(instruction));
+
+  // Replace section content entirely with instruction (not append)
+  // This avoids corruption from internal ## headers
+  sections[idx].bodyLines = instruction.split('\n');
+
+  // Reassemble
+  const result: string[] = [];
+  for (const s of sections) {
+    result.push(s.heading);
+    result.push(...s.bodyLines);
+  }
+  return result.join('\n');
+}
+
+
+function upsertUnderFirstHeading(content: string, addition: string): string {
+  const trimmed = content.trim();
+  if (!trimmed) return addition;
+  const lines = trimmed.split('\n');
+  const idx = lines.findIndex((line) => /^#{1,6}\s+/.test(line));
+  if (idx < 0) return trimmed + '\n\n' + addition;
+  return lines.slice(0, idx + 1).join('\n') + '\n' + addition + '\n' + lines.slice(idx + 1).join('\n');
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildRuntimeContext(questionCount: number, versions: any[], activeId: string, files: FileItem[], activeFileId: string, snapshot: string): string {
   const v = versions.find((x: any) => x.id === activeId);
   const stage = v?.stage ?? 'draft';
 
-  // Dynamically generate the question list based on questionCount
+  // Dynamically generate the question format template based on questionCount
   let questionList = '';
   for (let i = 1; i <= questionCount; i++) {
     if (i > 1) questionList += '\n';
-    questionList += i + '. **问题' + i + '**\n';
-    questionList += '  - A：...\n';
-    questionList += '  - B：...\n';
-    questionList += '  - C：...';
+    questionList += i + '. **示例问题文本，需替换为实际内容**\n';
+    questionList += '  - A：选项描述（需替换为实际选项）\n';
+    questionList += '  - B：选项描述（需替换为实际选项）\n';
+    questionList += '  - C：选项描述（需替换为实际选项）';
   }
 
   // Build document chain context
@@ -332,11 +571,22 @@ function buildPrompt(versions: any[], activeId: string, questionCount: number, f
     '',
   ].join('\n');
 
-  let ctx = '【硬性指令】你必须且只能提出**恰好 ' + questionCount + ' 个**问题。不满 ' + questionCount + ' 个或多于 ' + questionCount + ' 个均为错误。\n\n' + SYSTEM_PROMPT.replace('{QUESTION_LIST}', questionList) + context;
+  let ctx = '【硬性指令】你必须且只能提出**恰好 ' + questionCount + ' 个**问题。不满 ' + questionCount + ' 个或多于 ' + questionCount + ' 个均为错误。\n\n';
+  ctx += '【问题输出格式模板】\n' + questionList + '\n\n';
+  ctx += context;
+  ctx += '\n\n【协议要求 — 本轮必须执行】\n';
+  ctx += '你的回复末尾必须包含 ```json 协议块。即使用户只是选了选项、说了"好"、或简短回答，也必须输出。\n';
+  ctx += 'writeActions.content 规则：\n';
+  ctx += '  1. 只写本轮用户明确确认的内容，写成可直接放入文档的正文。\n';
+  ctx += '  2. 禁止包含模板占位符（如{项目名称}、{编号}等）。\n';
+  ctx += '  3. 禁止包含其他 section 的 ## 标题。\n';
+  ctx += '  4. 只写 targetSection 指定的那个段落的内容，不要越界写其他 section。\n';
+  ctx += '  5. 用户选了选项A"30次用完锁定"，写成"猜错上限30次，用完永久锁定"，不是"用户选择了A"。\n';
+  ctx += '如果用户本轮回答确认了某个重要信息，立即写入对应 section。不要延迟到下一轮。';
   if (stage === 'collecting') ctx += '\n\n当前阶段: 收集中。请围绕缺口继续追问。';
   if (stage === 'refining') ctx += '\n\n当前阶段: 精进中。方向已明确。';
-  if (stage === 'confirmed') ctx += '\\n\\n当前阶段: 已确认。可要求 locklock 锁定。';
-  if (snapshot) ctx += '\\n\\n【当前文件内容快照】\\n```\\n' + snapshot + '\\n```';
+  if (stage === 'confirmed') ctx += '\n\n当前阶段: 已确认。可要求 locklock 锁定。';
+  if (snapshot) ctx += '\n\n【当前文件内容快照】\n```\n' + snapshot + '\n```';
   return ctx;
 }
 
@@ -346,51 +596,88 @@ function parseStage(reply: string): VersionStage | null {
 }
 
 function extractProtocol(reply: string): any | null {
+  const idx = reply.indexOf('```json');
+  if (idx < 0) { console.log('[autoWrite] extractProtocol: 未找到 ```json 块'); return null; }
+  // Log context around the match
+  const before = reply.slice(Math.max(0, idx - 20), idx);
+  const after = reply.slice(idx, idx + 500);
+  console.log('[autoWrite] extractProtocol: 找到 ```json 位置=' + idx + ', 前20字符:', JSON.stringify(before), ', 后500字符:', JSON.stringify(after));
+  
   const m = reply.match(/```json\s*\n([\\s\S]*?)\n```/);
-  if (!m) return null;
-  try { return JSON.parse(m[1]); } catch { return null; }
+  if (!m) {
+    // Try more flexible patterns
+    const m2 = reply.match(/```json\s*([\s\S]*?)```/);
+    if (m2) {
+      console.log('[autoWrite] extractProtocol: 宽松匹配成功, JSON 内容:', m2[1].slice(0, 200));
+      try { const p = JSON.parse(m2[1].trim()); console.log('[autoWrite] extractProtocol: JSON 解析成功, keys=', Object.keys(p)); return p; }
+      catch (e) { console.log('[autoWrite] extractProtocol: JSON 解析失败', e); return null; }
+    }
+    console.log('[autoWrite] extractProtocol: 严格和宽松匹配都失败');
+    return null;
+  }
+  try { const p = JSON.parse(m[1]); console.log('[autoWrite] extractProtocol: 严格匹配成功, keys=', Object.keys(p)); return p; }
+  catch (e) { console.log('[autoWrite] extractProtocol: JSON 解析失败', e); return null; }
 }
 
-function executeProtocol(store: any, protocol: any) {
-  const { uiActions, writeActions } = protocol;
+async function executeProtocol(store: any, protocol: any) {
+  console.log('[autoWrite] executeProtocol: 开始, protocol keys=', Object.keys(protocol || {}));
+  const writeActions = Array.isArray(protocol?.writeActions) ? protocol.writeActions : [];
+  const uiActions = protocol?.uiActions ?? null;
+  const activeFile = findFileInTree(store.files, store.activeFileId);
+  const activeVersionId = store.activeVersionId;
+  console.log('[autoWrite] executeProtocol: activeFile=', activeFile?.id, 'writeActions count=', writeActions.length);
 
-  // 0. Apply write actions (write AI suggestions to disk)
-  if (writeActions && writeActions.length > 0) {
-    const currentContent = store.lines.map((l: any) => l.text).join('\n');
-    applyWriteActions(writeActions, store.activeVersionId, currentContent).then((newContent) => {
-      if (newContent !== currentContent) {
-        const lines = newContent.split('\n').map((text: string, i: number) => ({
-          id: 'wL' + (i + 1), lineNumber: i + 1, text,
-          type: text.startsWith('#') ? 'heading' : text.startsWith('-') ? 'list' : text.startsWith('>') ? 'quote' : 'paragraph',
-        }));
-        store.setEditorLines(lines);
-        // Sync B artifacts
-        const firstAction = writeActions[0];
-        syncBAfterWrite(firstAction.targetFile, firstAction.content, protocol.questions ?? [], protocol.confirmations ?? [], store.activeVersionId);
+  if (!protocolHasRequiredFields(protocol)) {
+    console.warn('[autoWrite] executeProtocol: protocol 缺少必填字段');
+    return;
+  }
+
+  if (writeActions.length > 0) {
+    const normalizedActions = writeActions.map((a: any) => ({ ...a, targetFile: normalizeTargetFile(a?.targetFile || '', activeFile?.id || store.activeFileId, store.files) }));
+    const matchingAction = normalizedActions.find((a: any) => a.targetFile === activeFile?.id) ?? normalizedActions[0];
+    console.log('[autoWrite] executeProtocol: matchingAction targetFile=', matchingAction?.targetFile, 'section=', matchingAction?.targetSection);
+    if (matchingAction) {
+      const currentContent = store.lines.map((l: any) => l.text).join('\n');
+      const nextContent = mergeAContent(currentContent, matchingAction);
+      console.log('[autoWrite] executeProtocol: content length before=', currentContent.length, 'after=', nextContent.length);
+      // Show what was actually added
+      if (nextContent !== currentContent) {
+        const added = nextContent.length > currentContent.length ? nextContent.slice(currentContent.length) : '(替换)';
+        console.log('[autoWrite] executeProtocol: 新增内容:', added.slice(0, 300));
       }
-    });
+      const nextLines = nextContent.split('\n').map((text: string, i: number) => ({
+        id: 'wL' + (i + 1),
+        lineNumber: i + 1,
+        text,
+        type: text.startsWith('#') ? 'heading' : text.startsWith('-') ? 'list' : text.startsWith('>') ? 'quote' : 'paragraph',
+        active: i === 0,
+      }));
+      store.setEditorLines(nextLines);
+      console.log('[autoWrite] executeProtocol: 编辑器已更新, 开始写磁盘...');
+      await fetch('/api/files/write', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath: 'letsgo/versions/' + activeVersionId + '/' + matchingAction.targetFile, content: nextContent }),
+      });
+      console.log('[autoWrite] executeProtocol: 磁盘写入完成');
+      store.selectFile(matchingAction.targetFile);
+      console.log('[autoWrite] executeProtocol: selectFile 完成');
+      syncBAfterWrite(matchingAction.targetFile, matchingAction.content, protocol.questions ?? [], protocol.confirmations ?? [], activeVersionId);
+    }
   }
 
   if (!uiActions) return;
-
-  // 1. Switch file
   if (uiActions.selectFile) {
     const fileId = findFileId(store.files, uiActions.selectFile);
     if (fileId) store.selectFile(fileId);
   }
-
-  // 2. Set light
   if (uiActions.setLight) {
     const activeId = store.activeFileId;
     if (activeId) store.setLight(activeId, uiActions.setLight);
   }
-
-  // 3. Lock current document
   if (uiActions.lockCurrentDocument) {
     store.locklockVersion(store.activeVersionId);
   }
-
-  // 4. Advance to next document
   if (protocol.shouldAdvance && protocol.suggestedNextDocument) {
     const nextFileId = findFileId(store.files, protocol.suggestedNextDocument);
     if (nextFileId) store.selectFile(nextFileId);
@@ -422,13 +709,180 @@ function getRequiredSections(docName: string): string[] {
 }
 
 function evaluateLight(content: string, docName?: string): 'gray' | 'yellow' | 'green' {
-  const hasPlaceholder = /{[^}]+}|TODO|TBD|待确认|未定|暂存|未确认/.test(content);
-  const tooShort = content.trim().length < 50;
-  if (hasPlaceholder || tooShort) return 'gray';
-  const required = getRequiredSections(docName ?? '');
-  const missing = required.filter(s => !content.includes(s));
-  if (missing.length > 0) return 'yellow';
-  return 'green';
+  return calcDocumentProgress(content, docName ?? '', false, 'a').light;
+}
+
+export interface DocumentProgress {
+  percent: number;
+  light: 'gray' | 'yellow' | 'green';
+  label: string;
+  missingSections: string[];
+  hasPlaceholder: boolean;
+  reason: string;
+}
+
+// ── Heading parser ──
+type HeadingNode = { level: number; title: string; start: number; end: number };
+
+function parseHeadings(content: string): HeadingNode[] {
+  const nodes: HeadingNode[] = [];
+  const regex = /^(#{1,6})\s+(.+)$/gm;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(content)) !== null) {
+    nodes.push({ level: m[1].length, title: m[2].trim(), start: m.index, end: m.index + m[0].length });
+  }
+  return nodes;
+}
+
+function extractSectionBody(content: string, headings: HeadingNode[], sectionTitle: string): string {
+  const idx = headings.findIndex(h => h.title.includes(sectionTitle));
+  if (idx < 0) return '';
+  const cur = headings[idx];
+  let end = content.length;
+  for (let i = idx + 1; i < headings.length; i++) {
+    if (headings[i].level <= cur.level) { end = headings[i].start; break; }
+  }
+  return content.slice(cur.end, end).trim();
+}
+
+function isMeaningfulSectionBody(body: string): boolean {
+  if (!body) return false;
+  const lines = body.split('\n').map(l => l.trim()).filter(Boolean);
+  const cleanedLines = lines.filter(line => {
+    if (/^#{1,6}\s+/.test(line)) return false;
+    if (/^\{[^}]+\}$/.test(line)) return false;
+    if (/^[-*+]\s*(xxx|TODO|TBD|待确认|未定|暂存|未确认|请填写|待补充|示例|…|\.{2,})$/i.test(line)) return false;
+    if (/^[-*+]\s*(项目背景|当前问题|现状痛点|功能说明|验收标准|技术栈|测试规范|业务目标|产品目标|工程目标)$/i.test(line)) return false;
+    if (/^[|\-\s:]+$/.test(line)) return false;
+    return true;
+  });
+  const joined = cleanedLines.join('\n').replace(/^[-*+]\s+.{1,15}$/gm, '').trim();
+  if (joined.length < 30) return false;
+  const hasSentenceLike = /[。！？]/.test(joined) || /[A-Za-z0-9]{8,}/.test(joined) || /[\u4e00-\u9fa5]{12,}/.test(joined);
+  if (!hasSentenceLike) return false;
+  const meaningful = cleanedLines.filter(line => {
+    if (/^[-*+]\s+/.test(line)) { const c = line.replace(/^[-*+]\s+/, '').trim(); return c.length > 15 && !/^(项目背景|当前问题|现状痛点|功能说明|验收标准|技术栈|测试规范|业务目标|产品目标|工程目标)$/i.test(c); }
+    return line.length >= 15;
+  });
+  return meaningful.length > 0;
+}
+
+function countTemplateSignals(content: string): number {
+  let count = 0;
+  if (/{[^}]+}/.test(content)) count += 2;
+  if (/TODO|TBD/i.test(content)) count += 2;
+  if (/待确认|未定|暂存|未确认|请填写|待补充|这里填写|示例/i.test(content)) count += 2;
+  const sk1 = content.match(/^[-*+]\s*(xxx|…|\.{2,}|请填写|待补充|示例)$/gim) || [];
+  if (sk1.length > 0) count += 3;
+  const sk2 = content.match(/^[-*+]\s*(项目背景|当前问题|现状痛点|功能说明|验收标准|技术栈|测试规范|业务目标|产品目标|工程目标)$/gim) || [];
+  if (sk2.length > 0) count += 3;
+  const listLines = content.match(/^\s*[-*+]\s+.+$/gm) || [];
+  if (listLines.length >= 10) count += 1;
+  return count;
+}
+
+type DocumentRule = {
+  yellowMinCompleted: number;
+  greenMinCompleted: number;
+  minBodyForGreen: number;
+  minBodyForYellow: number;
+};
+
+function getDocumentRule(docName: string): DocumentRule {
+  const total = getRequiredSections(docName).length || 1;
+  if (docName.includes('prd'))       return { yellowMinCompleted: Math.ceil(total*0.7), greenMinCompleted: total, minBodyForGreen: 200, minBodyForYellow: 100 };
+  if (docName.includes('features'))  return { yellowMinCompleted: Math.ceil(total*0.6), greenMinCompleted: total, minBodyForGreen: 180, minBodyForYellow: 90 };
+  if (docName.includes('rules'))     return { yellowMinCompleted: Math.ceil(total*0.6), greenMinCompleted: total, minBodyForGreen: 200, minBodyForYellow: 100 };
+  if (docName.includes('rfc') && !docName.includes('prd')) return { yellowMinCompleted: Math.ceil(total*0.6), greenMinCompleted: total, minBodyForGreen: 180, minBodyForYellow: 80 };
+  if (docName.includes('implementation')) return { yellowMinCompleted: Math.ceil(total*0.5), greenMinCompleted: total, minBodyForGreen: 150, minBodyForYellow: 70 };
+  if (docName.includes('code-review')) return { yellowMinCompleted: Math.ceil(total*0.5), greenMinCompleted: total, minBodyForGreen: 120, minBodyForYellow: 60 };
+  if (docName.includes('testing'))  return { yellowMinCompleted: Math.ceil(total*0.5), greenMinCompleted: total, minBodyForGreen: 140, minBodyForYellow: 70 };
+  if (docName.includes('change-management')) return { yellowMinCompleted: Math.ceil(total*0.5), greenMinCompleted: total, minBodyForGreen: 130, minBodyForYellow: 60 };
+  return { yellowMinCompleted: Math.ceil(total*0.5), greenMinCompleted: total, minBodyForGreen: 100, minBodyForYellow: 50 };
+}
+
+function getMeaningfulTextLength(content: string): number {
+  return content
+    .replace(/^#{1,6}\s+.+$/gm, '')
+    .replace(/\{[^}]+\}/g, '')
+    .replace(/\bTODO\b|\bTBD\b|待确认|未定|暂存|未确认|请填写|待补充|示例/gi, '')
+    .replace(/^[-*+]\s*(xxx|…|\.{2,}|请填写|待补充|示例)$/gim, '')
+    .replace(/^[-*+]\s*(项目背景|当前问题|现状痛点|功能说明|验收标准|技术栈|测试规范|业务目标|产品目标|工程目标)$/gim, '')
+    .replace(/^[-*+]\s+.{1,15}$/gm, '')
+    .replace(/^[|\-\s:]+$/gm, '')
+    .trim().length;
+}
+
+function analyzeDocument(content: string, docName: string) {
+  const required = getRequiredSections(docName);
+  const headings = parseHeadings(content);
+  const sectionResults = required.map(section => {
+    const body = extractSectionBody(content, headings, section);
+    return { section, body, complete: isMeaningfulSectionBody(body) };
+  });
+  const missingSections = sectionResults.filter(r => !r.complete).map(r => r.section);
+  const completedCount = sectionResults.filter(r => r.complete).length;
+  const hasPlaceholder = /{[^}]+}|TODO|TBD|待确认|未定|暂存|未确认|请填写|待补充/i.test(content);
+  const meaningfulTextLength = getMeaningfulTextLength(content);
+  const templateSignalCount = countTemplateSignals(content);
+  const skeletonLineCount = content.split('\n').filter(line => {
+    const t = line.trim();
+    return /^[-*+]\s*(xxx|…|\.{2,}|请填写|待补充|示例)$/i.test(t) ||
+           /^[-*+]\s*(项目背景|当前问题|现状痛点|功能说明|验收标准|技术栈|测试规范|业务目标|产品目标|工程目标)$/i.test(t) ||
+           /^\{[^}]+\}$/.test(t);
+  }).length;
+  const isPureTemplate = completedCount === 0 && meaningfulTextLength < 60 && templateSignalCount >= 3 && skeletonLineCount >= 3;
+  return { required, missingSections, completedCount, hasPlaceholder, meaningfulTextLength, templateSignalCount, headingCount: headings.length, skeletonLineCount, isPureTemplate };
+}
+
+export function calcDocumentProgress(content: string, docName: string, locked: boolean, category?: string): DocumentProgress {
+  if (locked) return { percent: 100, light: 'green', label: '已锁定', missingSections: [], hasPlaceholder: false, reason: '已锁定' };
+  if (category && category !== 'a') return { percent: 100, light: 'green', label: '', missingSections: [], hasPlaceholder: false, reason: '' };
+
+  const info = analyzeDocument(content, docName);
+  const rule = getDocumentRule(docName);
+
+  if (info.isPureTemplate) {
+    return { percent: 0, light: 'gray', label: '纯模板', missingSections: info.missingSections, hasPlaceholder: true, reason: '纯模板，无实质内容' };
+  }
+  if (info.completedCount === 0 && info.meaningfulTextLength < 60) {
+    return { percent: 0, light: 'gray', label: '纯模板', missingSections: info.missingSections, hasPlaceholder: true, reason: '纯模板，无实质内容' };
+  }
+
+  const reqCount = info.required.length || 1;
+  let percent = Math.round(info.completedCount / reqCount * 70);
+  if (info.meaningfulTextLength >= 200) percent += 12;
+  else if (info.meaningfulTextLength >= 80) percent += 8;
+  else if (info.meaningfulTextLength >= 30) percent += 4;
+  if (info.headingCount >= 5) percent += 3;
+  else if (info.headingCount >= 3) percent += 2;
+  if (!info.hasPlaceholder) percent += 8;
+  if (info.meaningfulTextLength >= 50) percent += 5;
+  if (info.skeletonLineCount >= 8) percent -= 12;
+  else if (info.skeletonLineCount >= 5) percent -= 6;
+  else if (info.skeletonLineCount >= 3) percent -= 3;
+  if (info.completedCount === 0) percent = Math.min(percent, 20);
+  else if (info.completedCount <= 2) percent = Math.min(percent, 55);
+  percent = Math.max(0, Math.min(100, percent));
+
+  let light: 'gray' | 'yellow' | 'green' = 'gray';
+  const isComplete = info.completedCount >= rule.greenMinCompleted && !info.hasPlaceholder && info.meaningfulTextLength >= rule.minBodyForGreen && info.templateSignalCount < 3;
+  const isNearly = info.completedCount >= rule.yellowMinCompleted && info.meaningfulTextLength >= rule.minBodyForYellow && !info.hasPlaceholder;
+
+  if (isComplete) { light = 'green'; percent = Math.max(percent, 95); }
+  else if (isNearly) { light = 'yellow'; percent = Math.max(percent, 70); }
+  else { light = 'gray'; percent = Math.min(percent, 69); }
+
+  const reason = light === 'green' ? '已完成' :
+    light === 'yellow' ? `还缺 ${info.missingSections.length} 个章节` :
+    info.completedCount === 0 ? '章节均未完成' :
+    info.hasPlaceholder ? '存在占位符' :
+    info.skeletonLineCount >= 5 ? '仍为模板骨架' :
+    '内容过短或信息不足';
+
+  return { percent, light,
+    label: light === 'green' ? '已完成' : light === 'yellow' ? '接近完成' : '进行中',
+    missingSections: info.missingSections, hasPlaceholder: info.hasPlaceholder, reason };
 }
 
 async function applyWriteActions(actions: any[], activeVersionId: string, currentContent: string): Promise<string> {
@@ -501,35 +955,385 @@ async function syncBAfterWrite(targetFile: string, content: string, questions: s
   }
 }
 
-function countQuestions(reply: string): number {
-  // Tolerant: ## or ###, optional colon, then capture everything until next heading or end
-  const section = reply.match(/(?:##|###)\s*本轮问题[：:]?\s*\n([\s\S]*?)(?=\n(?:##|###)\s|\n*$)/);
-  const content = section ? section[1] : reply;
-
-  // Count numbered items: 1. 或 1) 或 1、 后面紧跟 ** 或直接是文字
-  const matches = content.match(/^\s*\d+[.)、]\s*/gm);
-  return matches ? matches.length : 0;
+function cleanText(text: string): string {
+  return text
+    .replace(/\*\*/g, '')
+    .replace(/^\*+/, '')
+    .replace(/\*+$/, '')
+    .replace(/^[-–•]\s*/, '')
+    .replace(/^\.\s*/, '')
+    .replace(/^\([^)]*\)\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-async function callAI(apiKey: string, endpoint: string, msgs: ChatMessage[], versions: any[], activeId: string, questionCount: number, files: FileItem[], activeFileId: string, snapshot: string): Promise<string> {
-  const systemMsg = { role: 'system', content: buildPrompt(versions, activeId, questionCount, files, activeFileId, snapshot) };
+function parseQuestionsBlock(reply: string): ParsedQuestionBlock {
+  // Extract ### 本轮问题 section
+  const match = reply.match(/(?:##|###)\s*本轮问题[：:]?\s*\n([\s\S]*?)(?=\n(?:##|###)\s|\n```json\b|$)/);
+  if (!match) return { sectionText: '', prefix: reply, suffix: '', questions: [] };
+
+  const sectionText = match[0];
+  const prefix = reply.slice(0, match.index!);
+  const suffix = reply.slice(match.index! + sectionText.length);
+  const body = match[1];
+
+  // Split into blocks by question number boundaries
+  const lines = body.split('\n');
+  const blocks: string[][] = [];
+  let current: string[] = [];
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    const isStart = /^\d+[.)、]?\s+/.test(trimmed) || /^\d+\s*$/.test(trimmed);
+    if (isStart && current.length > 0) {
+      blocks.push(current);
+      current = [rawLine];
+    } else {
+      current.push(rawLine);
+    }
+  }
+  if (current.length > 0) blocks.push(current);
+
+  // Parse each block
+  const questions: ParsedQuestionBlock['questions'] = [];
+  for (const block of blocks) {
+    const blockLines = block.map(l => l.trim()).filter(Boolean);
+    if (blockLines.length === 0) continue;
+
+    // Extract id from first line
+    const idMatch = blockLines[0].match(/^(\d+)[.)、]?\s*(.*)$/);
+    if (!idMatch) continue;
+    const id = parseInt(idMatch[1]);
+
+    // Extract question text (from number line or next line)
+    let text = cleanText(idMatch[2] || '');
+    if (!text && blockLines.length > 1 && !/^[A-C][.：)]/.test(blockLines[1])) {
+      text = cleanText(blockLines[1]);
+    }
+
+    if (!text || text === '') continue; // skip empty questions
+
+    const normText = normalizeQuestionText(text);
+    if (!questions.find(q => q.id === id)) {
+      questions.push({ id, text, normalizedText: normText });
+    }
+  }
+
+  return { sectionText, prefix, suffix, questions };
+}
+
+function normalizeQuestionText(text: string): string {
+  return text.trim().replace(/\s+/g, ' ').replace(/[。.?？!！]+$/g, '');
+}
+
+function countQuestions(reply: string): number {
+  return parseQuestionsBlock(reply).questions.length;
+}
+
+function countChineseChars(text: string): number {
+  return (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+}
+
+function validateQuestionBlock(block: ParsedQuestionBlock, targetCount: number): QuestionValidation {
+  const result: QuestionValidation = {
+    ok: false, valid: [], missingIds: [], duplicateIds: [], emptyTextIds: [],
+    tooShortIds: [], outOfRangeIds: [], reason: '',
+  };
+
+  const qs = block.questions;
+  const idMap = new Map<number, number[]>();
+  for (let i = 0; i < qs.length; i++) {
+    const existing = idMap.get(qs[i].id) || [];
+    existing.push(i);
+    idMap.set(qs[i].id, existing);
+  }
+
+  // 检查越界编号
+  for (const id of idMap.keys()) {
+    if (id < 1 || id > targetCount) result.outOfRangeIds.push(id);
+  }
+
+  // 检查重复编号
+  for (const [id, positions] of idMap) {
+    if (positions.length > 1) result.duplicateIds.push({ id, positions });
+  }
+
+  // 检查缺失编号 (1..targetCount)
+  for (let i = 1; i <= targetCount; i++) {
+    if (!idMap.has(i)) result.missingIds.push(i);
+  }
+
+  // 检查内容和长度
+  for (const q of qs) {
+    if (!q.text.trim()) {
+      result.emptyTextIds.push(q.id);
+    } else if (countChineseChars(q.text) < 3) {
+      result.tooShortIds.push(q.id);
+    } else {
+      result.valid.push(q);
+    }
+  }
+
+  // 判定 ok: 无缺口、无重复、无越界、无空文本、无过短
+  if (result.missingIds.length === 0 && result.duplicateIds.length === 0
+      && result.outOfRangeIds.length === 0 && result.emptyTextIds.length === 0
+      && result.tooShortIds.length === 0) {
+    result.ok = true;
+  } else {
+    const parts: string[] = [];
+    if (result.missingIds.length > 0) parts.push('缺号: ' + result.missingIds.join(','));
+    if (result.duplicateIds.length > 0) parts.push('重复: ' + result.duplicateIds.map(d => d.id).join(','));
+    if (result.outOfRangeIds.length > 0) parts.push('越界: ' + result.outOfRangeIds.join(','));
+    if (result.emptyTextIds.length > 0) parts.push('空文本: ' + result.emptyTextIds.join(','));
+    if (result.tooShortIds.length > 0) parts.push('过短: ' + result.tooShortIds.join(','));
+    result.reason = parts.join('; ');
+  }
+
+  return result;
+}
+
+function resolveMaxTokens(questionCount: number): number {
+  if (questionCount >= 80) return 12288;
+  if (questionCount >= 50) return 8192;
+  if (questionCount >= 20) return 4096;
+  if (questionCount >= 10) return 3072;
+  return 2048;
+}
+
+interface TokenUsage { prompt: number; completion: number; total: number; }
+
+async function callAI(apiKey: string, endpoint: string, msgs: ChatMessage[], versions: any[], activeId: string, questionCount: number, files: FileItem[], activeFileId: string, snapshot: string, retryContext?: string): Promise<{ content: string; usage: TokenUsage | null }> {
+  let runtimeCtx = buildRuntimeContext(questionCount, versions, activeId, files, activeFileId, snapshot);
+  if (retryContext) runtimeCtx = retryContext + '\n\n' + runtimeCtx;
+
   const chatMsgs = msgs.map((m) => ({ role: m.role as string, content: m.content }));
+  const msgList = [
+    { role: 'system', content: STATIC_SYSTEM },
+    { role: 'user', content: runtimeCtx },
+    ...chatMsgs
+  ];
+  console.log('[callAI] ========== 发送给 AI 的消息结构（共' + msgList.length + '条）==========');
+  msgList.forEach((m, i) => {
+    console.log('[callAI] ─── 消息[' + i + '] role=' + m.role + ' length=' + m.content.length + ' ───');
+    console.log(m.content);
+  });
+  console.log('[callAI] ========== 消息结构结束 ==========');
+  const maxTokens = resolveMaxTokens(questionCount);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30000);
   try {
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
-      body: JSON.stringify({ model: 'deepseek-chat', messages: [systemMsg, ...chatMsgs], temperature: 0.7, max_tokens: 2048 }),
+      body: JSON.stringify({ model: 'deepseek-chat', messages: msgList, temperature: 0.7, max_tokens: maxTokens }),
       signal: controller.signal,
     });
     clearTimeout(timer);
     if (!res.ok) { const err = await res.text(); throw new Error('API error ' + res.status + ': ' + err); }
     const data = await res.json();
-    return data.choices?.[0]?.message?.content ?? '';
+    const rawReply = data.choices?.[0]?.message?.content ?? '';
+    console.log('[callAI] AI 原始回复长度:', rawReply.length);
+    console.log('[callAI] AI 回复末尾 200 字符:', rawReply.slice(-200));
+    const u = data.usage;
+    return {
+      content: data.choices?.[0]?.message?.content ?? '',
+      usage: u ? { prompt: u.prompt_tokens, completion: u.completion_tokens, total: u.total_tokens } : null,
+    };
   } finally {
     clearTimeout(timer);
   }
+}
+
+function trimAndValidate(block: ParsedQuestionBlock, questionCount: number, genState: QuestionGenState): { block: ParsedQuestionBlock; validation: QuestionValidation } {
+  const beforeTrim = block.questions.length;
+  block.questions = block.questions.filter(q => q.id >= 1 && q.id <= questionCount);
+  if (block.questions.length < beforeTrim) {
+    genState.warnings.push('模型多输出了 ' + (beforeTrim - block.questions.length) + ' 个越界问题，已修剪');
+  }
+  const validation = validateQuestionBlock(block, questionCount);
+  return { block, validation };
+}
+
+// ── ensureQuestionCount: validate + fill + retry ──
+
+function mergeQuestionBlock(original: ParsedQuestionBlock, fillBlock: ParsedQuestionBlock): ParsedQuestionBlock {
+  const idMap = new Map<number, string>();
+  for (const q of original.questions) idMap.set(q.id, q.text);
+  for (const q of fillBlock.questions) idMap.set(q.id, q.text);
+
+  const existingIds = Array.from(idMap.keys());
+  const maxId = existingIds.length > 0 ? Math.max(...existingIds) : 0;
+
+  const lines: string[] = ['### 本轮问题'];
+  for (let i = 1; i <= maxId; i++) {
+    const text = idMap.get(i);
+    if (text) lines.push(i + '\n**' + text + '**\n- A：...\n- B：...\n- C：...');
+  }
+
+  return {
+    sectionText: lines.join('\n'),
+    prefix: original.prefix,
+    suffix: original.suffix,
+    questions: Array.from(idMap.entries()).map(([id, text]) => {
+      const normText = normalizeQuestionText(text);
+      return { id, text, normalizedText: normText };
+    }).sort((a, b) => a.id - b.id),
+  };
+}
+
+function buildFillPrompt(
+  missingIds: number[],
+  existingQuestions: { id: number; text: string }[],
+  snapshot: string
+): string {
+  const existingList = existingQuestions
+    .sort((a, b) => a.id - b.id)
+    .map(q => q.id + '. ' + q.text)
+    .join('\n');
+  const missingList = missingIds.join(', ');
+
+  return [
+    '【填缺指令】上一轮已生成 ' + existingQuestions.length + ' 个问题，缺少以下编号：' + missingList,
+    '',
+    '规则：只补足缺失编号的问题，不重写已有问题。',
+    '输出格式：只包含 ### 本轮问题 段，不输出其他段落（当前理解/缺口分析等）。',
+    '问题结构：每个编号独占一行，下一行是问题文本（**加粗**），然后是 A/B/C 选项。',
+    '必须恰好补 ' + missingIds.length + ' 个，不多不少。',
+    '每个问题必须有实质内容，不能空泛。',
+    '不得重复已有问题的内容或角度。',
+    '',
+    '【已有问题（勿动）】',
+    existingList.slice(0, 2500),
+    '',
+    '【当前文档快照（仅用于理解上下文）】',
+    '```',
+    snapshot.slice(0, 1500),
+    '```',
+  ].join('\n');
+}
+
+function buildRetrySystemMsg(failureReason: string, questionCount: number): string {
+  return [
+    '【重试指令 — 这是最终兜底重试】',
+    '上一轮失败原因：' + failureReason,
+    '',
+    '你必须严格遵守以下要求：',
+    '1. 恰好输出 ' + questionCount + ' 个问题，编号从 1 到 ' + questionCount + ' 连续不跳号',
+    '2. 每个问题必须有实质内容，不可空泛、不可模板句',
+    '3. 不要输出上一轮已失败的内容',
+    '4. 如果仍失败，不允许编造成功 — 系统会校验',
+    '5. 所有 ### 段（当前理解/缺口分析/状态判断/下一步/本轮问题）必须全量输出',
+    '',
+    '这是第二次尝试，也是最后一次。请严格遵守格式和数量要求。',
+  ].join('\n');
+}
+
+async function ensureQuestionCount(
+  reply: string,
+  questionCount: number,
+  snapshot: string,
+  apiKey: string,
+  endpoint: string,
+  msgs: ChatMessage[],
+  versions: any[],
+  activeVersionId: string,
+  files: FileItem[],
+  activeFileId: string,
+): Promise<{ finalReply: string; genState: QuestionGenState; extraUsage: TokenUsage | null }> {
+  let genState: QuestionGenState = {
+    status: 'first', attempt: 0, targetCount: questionCount, actualCount: 0, fillCount: 0, warnings: [],
+  };
+  let extraUsage: TokenUsage | null = null;
+  const addUsage = (u: TokenUsage | null) => {
+    if (!u) return;
+    if (!extraUsage) extraUsage = { prompt: 0, completion: 0, total: 0 };
+    extraUsage.prompt += u.prompt;
+    extraUsage.completion += u.completion;
+    extraUsage.total += u.total;
+  };
+
+  let block = parseQuestionsBlock(reply);
+  const origQuestionCount = block.questions.length;
+  let { block: trimmedBlock, validation } = trimAndValidate(block, questionCount, genState);
+  block = trimmedBlock;
+  genState.actualCount = block.questions.length;
+
+  if (validation.ok) {
+    genState.status = 'done';
+    // Only rebuild reply when trimming removed questions; otherwise preserve original options
+    let finalReply = reply;
+    if (block.questions.length < origQuestionCount) {
+      finalReply = block.prefix + '\n' + block.sectionText + '\n' + block.suffix;
+    }
+    return { finalReply, genState, extraUsage };
+  }
+
+  // 补缺条件: 只有缺口(无重复/越界/空文本) 且 ≤10%
+  const gapRatio = validation.missingIds.length / questionCount;
+  const canFill = validation.missingIds.length > 0
+    && validation.duplicateIds.length === 0
+    && validation.outOfRangeIds.length === 0
+    && validation.emptyTextIds.length === 0
+    && validation.tooShortIds.length === 0
+    && gapRatio <= 0.1;
+
+  if (canFill) {
+    genState.status = 'filling';
+    genState.attempt = 1;
+    genState.fillCount = validation.missingIds.length;
+    genState.warnings.push('补充 ' + validation.missingIds.length + ' 个缺失问题');
+
+    const fillPrompt = buildFillPrompt(validation.missingIds, block.questions, snapshot);
+    try {
+      const { content: fillReply, usage: fillUsage } = await callAI(apiKey, endpoint, msgs, versions, activeVersionId,
+        questionCount, files, activeFileId, fillPrompt);
+      addUsage(fillUsage);
+      const fillBlock = parseQuestionsBlock(fillReply);
+      let { block: trimmedFill, validation: fillVal } = trimAndValidate(fillBlock, questionCount, genState);
+      block = mergeQuestionBlock(block, trimmedFill);
+      validation = fillVal;
+      genState.actualCount = block.questions.length;
+
+      if (validation.ok) {
+        genState.status = 'done';
+        const finalReply = block.prefix + '\n' + block.sectionText + '\n' + block.suffix;
+        return { finalReply, genState, extraUsage };
+      }
+    } catch (e) {
+      genState.warnings.push('补缺调用失败: ' + String(e));
+    }
+  }
+
+  // 重试: 结构性问题或补缺失败
+  genState.status = 'retrying';
+  genState.attempt = 2;
+  genState.warnings.push((canFill ? '补缺失败' : '结构性/质量问题') + '，全量重试');
+
+  const retryCtx = buildRetrySystemMsg(validation.reason, questionCount);
+  try {
+    const { content: retryReply, usage: retryUsage } = await callAI(apiKey, endpoint, msgs, versions, activeVersionId,
+      questionCount, files, activeFileId, snapshot, retryCtx);
+    addUsage(retryUsage);
+    const retryBlock = parseQuestionsBlock(retryReply);
+    const { block: trimmedRetry, validation: retryValidation } = trimAndValidate(retryBlock, questionCount, genState);
+    genState.actualCount = trimmedRetry.questions.length;
+
+    if (retryValidation.ok) {
+      genState.status = 'done';
+      return { finalReply: retryReply, genState, extraUsage };
+    }
+    genState.warnings.push('重试后仍有问题: ' + retryValidation.reason);
+  } catch (e) {
+    genState.warnings.push('重试调用失败: ' + String(e));
+  }
+
+  // 最终失败 — use best available reply with trimmed questions
+  genState.status = 'failed';
+  let bestReply = reply;
+  try { bestReply = block.prefix + '\n' + block.sectionText + '\n' + block.suffix; } catch (_) {}
+  const failNote = '\n\n---\n> 已尝试 ' + genState.attempt + ' 次，未达到 ' + questionCount
+    + ' 个问题要求（实际 ' + genState.actualCount + ' 个）。'
+    + (genState.fillCount > 0 ? ' 已补缺 ' + genState.fillCount + ' 个。' : '');
+  return { finalReply: bestReply + failNote, genState, extraUsage };
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -551,11 +1355,28 @@ export const useStore = create<AppState>((set, get) => ({
   apiEndpoint: 'https://api.deepseek.com/v1/chat/completions',
   isLoading: false,
   questionCount: 3,
+  pendingAction: null,
+  questionGen: null,
+
+  setPendingAction: (pa) => set({ pendingAction: pa }),
+
+  confirmAndExec: (id, action) => {
+    const pa = get().pendingAction;
+    if (pa && pa.id === id && pa.action === action) {
+      set({ pendingAction: null });
+      if (action === 'reset') get().resetFile(id);
+      else if (action === 'delete') get().deleteFile(id);
+      else if (action === 'deleteVer') get().deleteVersion(id);
+    } else {
+      set({ pendingAction: { id, action } });
+    }
+  },
 
   selectVersion: (id) => {
+    set({ pendingAction: null });
     const versions = get().versions;
     const version = versions.find((v) => v.id === id) as any;
-    const newLines = versionContent[id] ?? [{ id: 'empty', lineNumber: 1, text: '// 新版本', type: 'meta', active: true }];
+    const newLines = versionContent[id] ?? [{ id: 'loading', lineNumber: 1, text: '// 加载中...', type: 'meta', active: true }];
     set({
       versions: versions.map((v) => ({ ...v, active: v.id === id })),
       activeVersionId: id,
@@ -567,55 +1388,20 @@ export const useStore = create<AppState>((set, get) => ({
     fetch('/api/files?dir=letsgo/versions/' + id)
       .then((r) => r.json())
       .then((data: any[]) => {
-        const aChildren: FileItem[] = [];
-        const bChildren: FileItem[] = [];
-        const cChildren: FileItem[] = [];
-        const rootFiles: FileItem[] = [];
-        for (const f of data) {
-          if (f.type === 'folder' && f.name === 'a/') {
-            // A-folder: its children will appear as a/* paths
-          } else if (f.type === 'folder' && f.name === 'b/') {
-            // B-folder: its children will appear as b/* paths
-          } else if (f.type === 'folder' && f.name === 'c/') {
-            // C-folder: its children will appear as c/* paths
-          } else if (f.name.startsWith('b/')) {
-            bChildren.push({ id: f.name, name: f.name.slice(2), type: f.type as any, category: 'b' });
-          } else if (f.name.startsWith('a/')) {
-            const shortName = f.name.slice(2).replace(/^\d+-/, '');
-            aChildren.push({ id: f.name, name: shortName, type: f.type as any, category: 'a', light: 'gray' });
-          } else if (f.name.startsWith('c/')) {
-            cChildren.push({ id: f.name, name: f.name.slice(2), type: f.type as any, category: 'c' });
-          } else {
-            rootFiles.push({ id: f.name, name: f.name, type: f.type as any });
-          }
-        }
-        const groups: FileItem[] = [];
-        groups.push({ id: 'group:a', name: 'A 核心产出文档', type: 'folder', category: 'a', children: aChildren });
-        groups.push({ id: 'group:b', name: 'B 治理文档', type: 'folder', category: 'b', children: bChildren });
-        groups.push({ id: 'group:c', name: 'C 差异文档', type: 'folder', category: 'c', children: cChildren });
-        groups.push({
-          id: 'group:d', name: 'D 主入口索引', type: 'folder', category: 'a',
-          children: [{ id: 'current/latest_plan.md', name: 'latest_plan.md', type: 'md', category: 'a' }],
-        });
-        const all = [...groups, ...rootFiles];
-        set({ files: all, activeFileId: bChildren[0]?.id ?? aChildren[0]?.id ?? rootFiles[0]?.id ?? '' });
+        const all = buildFileTree(data);
+        const aGroup = all.find((f) => f.id === 'group:a');
+        const bGroup = all.find((f) => f.id === 'group:b');
+        const defaultFileId = aGroup?.children?.[0]?.id ?? bGroup?.children?.[0]?.id ?? all.find((f) => !f.id.startsWith('group:'))?.id ?? '';
+        set({ files: all, activeFileId: defaultFileId });
+        if (defaultFileId) get().selectFile(defaultFileId);
       })
       .catch(() => {});
+    return; // selectVersion returns void initially, async work continues in background
   },
 
   selectFile: (id) => {
-    // Recursively find file in files array (including children of group folders)
-    function findFile(items: FileItem[]): FileItem | undefined {
-      for (const f of items) {
-        if (f.id === id) return f;
-        if (f.children) {
-          const found = findFile(f.children);
-          if (found) return found;
-        }
-      }
-      return undefined;
-    }
-    const file = findFile(get().files);
+    set({ pendingAction: null });
+    const file = findFileInTree(get().files, id);
     if (!file) return;
     if (file.type === 'folder' && file.children) return; // group folder, handled by UI expand/collapse
     set({ activeFileId: id });
@@ -683,32 +1469,63 @@ export const useStore = create<AppState>((set, get) => ({
       });
       return;
     }
-    const userMsg: ChatMessage = { id: 'm' + (msgCounter++), role: 'user', content: text, timestamp: now() };
+    const protocolPrefix = '【请在你的回复末尾输出 ```json 协议块，写入文档。】\n\n';
+    const augmentedText = text.startsWith('【请在你的回复末尾') ? text : protocolPrefix + text;
+    const userMsg: ChatMessage = { id: 'm' + (msgCounter++), role: 'user', content: augmentedText, timestamp: now() };
+    console.log('[sendMsg] ========== 用户发送消息 ==========');
+    console.log('[sendMsg] 内容长度:', text.length, '当前文件:', activeFileId);
+    console.log('[sendMsg] 消息内容:', text.slice(0, 500));
     set((s) => ({ messages: [...s.messages, userMsg], inputText: '', isLoading: true }));
 
     try {
       const questionCount = get().questionCount;
       // Build current document snapshot from editor lines
       const snapshot = get().lines.map(l => l.text).join('\n');
-      const reply = await callAI(apiKey, get().apiEndpoint, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot);
+      const { content: reply, usage: firstUsage } = await callAI(apiKey, get().apiEndpoint, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot);
       const parsedStage = parseStage(reply);
 
-      // Validate question count matches expectation
+      // ── 校验门禁 (questionCount > 1 时启用) ──
       let finalReply = reply;
-      const actualCount = countQuestions(reply);
-      if (actualCount !== questionCount) {
-        console.warn('[validate] 期望 ' + questionCount + ' 个问题，实际输出 ' + actualCount + ' 个');
-        finalReply = reply + '\n\n---\n> 校验警告：期望 ' + questionCount + ' 个问题，实际生成 ' + actualCount + ' 个。';
+      let genState: QuestionGenState | null = null;
+      let totalUsage: TokenUsage = firstUsage ?? { prompt: 0, completion: 0, total: 0 };
+      if (questionCount > 1) {
+        const result = await ensureQuestionCount(reply, questionCount, snapshot,
+          apiKey, get().apiEndpoint, get().messages, get().versions, get().activeVersionId,
+          get().files, get().activeFileId);
+        finalReply = result.finalReply;
+        genState = result.genState;
+        // accumulate fill/retry token usage
+        if (result.extraUsage) {
+          totalUsage = {
+            prompt: totalUsage.prompt + result.extraUsage.prompt,
+            completion: totalUsage.completion + result.extraUsage.completion,
+            total: totalUsage.total + result.extraUsage.total,
+          };
+        }
       }
 
       // Strip JSON protocol block from visible text
+      const hasJsonBlock = finalReply.includes('```json');
+      console.log('[autoWrite] sendMessage: AI 回复长度=', finalReply.length, '包含```json?', hasJsonBlock);
+      if (!hasJsonBlock) {
+        console.log('[autoWrite] sendMessage: AI 回复末尾 300 字符:', finalReply.slice(-300));
+      }
       const visibleText = finalReply.replace(/```json[\s\S]*?```/g, '').trim() || finalReply;
       const newMsgs = [...get().messages, {
         id: 'm' + (msgCounter++), role: 'assistant' as const,
         content: visibleText, timestamp: now(),
         raw: finalReply, protocol: extractProtocol(finalReply),
+        usage: totalUsage.total > 0 ? totalUsage : undefined,
+        questionGenMeta: genState ? {
+          attempted: genState.attempt > 0,
+          attemptCount: genState.attempt,
+          fillCount: genState.fillCount,
+          retryCount: genState.attempt >= 2 ? 1 : 0,
+          finalStatus: genState.status === 'done' ? 'success' : 'failed',
+          warnings: genState.warnings.join('; '),
+        } : undefined,
       }];
-      const updates: any = { messages: newMsgs, isLoading: false };
+      const updates: any = { messages: newMsgs, isLoading: false, questionGen: genState };
       if (parsedStage) {
         updates.versions = get().versions.map((v) => {
           if (v.id === get().activeVersionId) return { ...v, stage: parsedStage } as any;
@@ -719,8 +1536,24 @@ export const useStore = create<AppState>((set, get) => ({
 
       // Execute protocol from parsed message
       const protocol = newMsgs[newMsgs.length - 1].protocol;
+      console.log('[autoWrite] sendMessage: protocol 存在?', !!protocol);
       if (protocol) {
-        setTimeout(() => executeProtocol(get(), protocol), 100);
+        if (!protocolHasRequiredFields(protocol)) {
+          console.log('[autoWrite] sendMessage: protocol 缺少必填字段, 显示提示');
+          set((s) => ({
+            messages: [...s.messages, { id: 'm' + (msgCounter++), role: 'assistant' as const, content: 'AI 回复缺少协议块，未执行自动回填。', timestamp: now() }],
+          }));
+        } else {
+          console.log('[autoWrite] sendMessage: 100ms 后执行 executeProtocol');
+          setTimeout(() => {
+            executeProtocol(get(), protocol).catch((err: any) => {
+              console.warn('[executeProtocol] failed', err);
+              set((s) => ({
+                messages: [...s.messages, { id: 'm' + (msgCounter++), role: 'assistant' as const, content: '自动回填失败: ' + (err?.message || String(err)), timestamp: now() }],
+              }));
+            });
+          }, 100);
+        }
       }
     } catch (e: any) {
       set((s) => ({
@@ -801,21 +1634,49 @@ export const useStore = create<AppState>((set, get) => ({
   setQuestionCount: (n) => set({ questionCount: n }),
 
   generateVersionFiles: async (versionId) => {
+    console.log('[genFiles] generateVersionFiles 开始, versionId=', versionId);
     const v = get().versions.find((x) => x.id === versionId) as any;
-    if (!v) return;
+    if (!v) { console.log('[genFiles] 版本不存在'); return; }
+
+    const activeFile = findFileInTree(get().files, get().activeFileId);
+    console.log('[genFiles] activeFile=', activeFile?.id, 'category=', activeFile?.category);
+    if (activeFile?.category === 'a') {
+      const content = get().lines.map((l) => l.text).join('\n');
+      console.log('[genFiles] 写回 A 文件, content length=', content.length);
+      await fetch('/api/files/write', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filePath: `letsgo/versions/${versionId}/${activeFile.id}`,
+          content,
+        }),
+      });
+      console.log('[genFiles] A 文件写回完成');
+    }
+
     const body = JSON.stringify({
       versionId,
       title: v.title,
       messages: get().messages.map((m) => ({ role: m.role, content: m.content })),
       lines: get().lines.map((l) => ({ text: l.text })),
     });
+    console.log('[genFiles] 调用 /api/files/generate, lines count=', get().lines.length);
     try {
       const res = await fetch('/api/files/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
       if (!res.ok) throw new Error('生成失败');
+      console.log('[genFiles] generate 成功');
       set((s) => ({
         messages: [...s.messages, { id: 'm' + (msgCounter++), role: 'assistant' as const, content: '版本 ' + v.title + ' 的文件已生成。', timestamp: now() }],
       }));
-    } catch {
+      fetch('/api/files?dir=letsgo/versions/' + versionId)
+        .then((r) => r.json())
+        .then((data: any[]) => {
+          console.log('[genFiles] 重建文件树, 条目数=', data.length);
+          set({ files: buildFileTree(data) });
+        })
+        .catch(() => {});
+    } catch (e) {
+      console.log('[genFiles] generate 失败', e);
       set((s) => ({
         messages: [...s.messages, { id: 'm' + (msgCounter++), role: 'assistant' as const, content: '文件生成失败。', timestamp: now() }],
       }));
@@ -825,7 +1686,7 @@ export const useStore = create<AppState>((set, get) => ({
   createFile: async (name) => {
     const fullName = name.endsWith('.md') ? name : name + '.md';
     const verId = get().activeVersionId;
-    const dir = 'letsgo/versions/' + verId + '/b';
+    const dir = 'letsgo/versions/' + verId + '/x';
     try {
       const res = await fetch('/api/files', {
         method: 'POST',
@@ -834,15 +1695,21 @@ export const useStore = create<AppState>((set, get) => ({
       });
       if (!res.ok) { const err = await res.json(); alert(err.error || '创建失败'); return; }
       const data = await res.json();
-      const newFile: FileItem = { id: 'b/' + data.name, name: data.name, type: data.type as FileItem['type'], category: 'b' };
+      const newFile: FileItem = { id: 'x/' + data.name, name: data.name, type: data.type as FileItem['type'], category: 'x', createdByUser: true, light: 'gray' };
       const currentFiles = get().files;
-      // Add to b-group children
-      const updated = currentFiles.map((f) => {
-        if (f.id === 'group:b' && f.children) {
-          return { ...f, children: [...f.children, newFile] };
-        }
-        return f;
-      });
+      // Add to x-group children, creating group if needed
+      let xGroup = currentFiles.find((f) => f.id === 'group:x');
+      if (!xGroup) {
+        xGroup = { id: 'group:x', name: 'X 自建文档', type: 'folder' as const, category: 'x' as const, children: [] };
+        set({ files: [...currentFiles, xGroup], activeFileId: newFile.id });
+        xGroup = get().files.find((f) => f.id === 'group:x')!;
+      }
+      const updated = currentFiles.some(f => f.id === 'group:x')
+        ? currentFiles.map((f) => {
+            if (f.id === 'group:x' && f.children) return { ...f, children: [...f.children, newFile] };
+            return f;
+          })
+        : [...currentFiles, { id: 'group:x', name: 'X 自建文档', type: 'folder' as const, category: 'x' as const, children: [newFile] }];
       set({ files: updated, activeFileId: newFile.id });
     } catch { alert('创建文件失败'); }
   },
@@ -880,5 +1747,92 @@ export const useStore = create<AppState>((set, get) => ({
         };
       }),
     }));
+  },
+
+  resetFile: async (fileId) => {
+    console.log('[resetFile] 重置文件:', fileId);
+    const files = get().files;
+    let file: FileItem | undefined;
+    for (const g of files) {
+      if (g.children) { file = g.children.find(c => c.id === fileId); if (file) break; }
+    }
+    if (!file || !file.hasTemplate) { console.log('[resetFile] 文件不存在或没有模板'); return; }
+    const verId = get().activeVersionId;
+    const relPath = 'letsgo/versions/' + verId + '/' + fileId;
+    try {
+      // Read template from immutable templates/ directory
+      const tplName = fileId.includes('/') ? fileId : 'a/' + fileId;
+      const tplPath = 'letsgo/templates/' + tplName;
+      console.log('[resetFile] 读取模板:', tplPath);
+      const r = await fetch('/api/files?path=' + encodeURIComponent(tplPath));
+      const data = await r.json();
+      if (!data.lines) { console.log('[resetFile] 模板不存在'); return; }
+      const content = data.lines.map((l: any) => l.text).join('\n');
+      console.log('[resetFile] 模板内容长度:', content.length);
+      await fetch('/api/files/write', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath: relPath, content }),
+      });
+      console.log('[resetFile] 写入完成, 刷新编辑器');
+      get().selectFile(fileId);
+    } catch (e) { console.log('[resetFile] 失败', e); alert('重置失败'); }
+  },
+
+  deleteFile: async (fileId) => {
+    const files = get().files;
+    let file: FileItem | undefined;
+    for (const g of files) {
+      if (g.children) { file = g.children.find(c => c.id === fileId); if (file) break; }
+    }
+    if (!file || !file.createdByUser) return;
+    const verId = get().activeVersionId;
+    const relPath = 'letsgo/versions/' + verId + '/' + fileId;
+    try {
+      const r = await fetch('/api/files', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filePath: relPath }),
+      });
+      if (!r.ok) { alert('删除失败'); return; }
+      // Find next file before removing from tree
+      const isActive = get().activeFileId === fileId;
+      let nextId = get().activeFileId;
+      if (isActive) {
+        const origGroup = files.find(g => g.children?.some(c => c.id === fileId));
+        if (origGroup?.children) {
+          const idx = origGroup.children.findIndex(c => c.id === fileId);
+          const next = origGroup.children[idx + 1] || origGroup.children[idx - 1];
+          nextId = next?.id ?? '';
+        }
+      }
+      // Remove from file tree
+      const updated = files.map((g) => {
+        if (!g.children) return g;
+        return { ...g, children: g.children.filter(c => c.id !== fileId) };
+      });
+      set({ files: updated, activeFileId: nextId });
+      if (nextId && nextId !== fileId) get().selectFile(nextId);
+    } catch { alert('删除文件失败'); }
+  },
+
+  deleteVersion: async (versionId) => {
+    const versions = get().versions;
+    if (versions.length <= 1) { alert('至少保留一个版本'); return; }
+    try {
+      const r = await fetch('/api/versions', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ versionId }),
+      });
+      if (!r.ok) { alert('删除版本失败'); return; }
+      // Remove from versions list
+      const idx = versions.findIndex((v: any) => v.id === versionId);
+      const updated = versions.filter((v: any) => v.id !== versionId);
+      const prevIdx = Math.max(0, idx - 1);
+      const nextId = updated[prevIdx]?.id ?? '';
+      set({ versions: updated, activeVersionId: nextId });
+      if (nextId) get().selectVersion(nextId);
+    } catch { alert('删除版本失败'); }
   },
 }));

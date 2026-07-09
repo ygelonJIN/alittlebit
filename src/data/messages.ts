@@ -5,6 +5,15 @@ export interface ChatMessage {
   timestamp?: string;
   raw?: string;
   protocol?: any;
+  usage?: { prompt: number; completion: number; total: number };
+  questionGenMeta?: {
+    attempted: boolean;
+    attemptCount: number;
+    fillCount: number;
+    retryCount: number;
+    finalStatus: 'success' | 'failed';
+    warnings: string;
+  };
 }
 
 export const messages: ChatMessage[] = [

@@ -80,6 +80,31 @@ function filesPlugin(): Plugin {
         });
       });
 
+      // ── /api/versions ──
+      server.middlewares.use('/api/versions', (req, res) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'DELETE, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        if (req.method === 'OPTIONS') { res.statusCode = 204; res.end(); return; }
+        if (req.method !== 'DELETE') { res.statusCode = 405; res.end(); return; }
+        let body = '';
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', () => {
+          try {
+            const { versionId } = JSON.parse(body);
+            if (!versionId) { res.statusCode = 400; res.end(JSON.stringify({ error: 'versionId required' })); return; }
+            const verDir = path.join(OUTPUT_DIR, 'versions', versionId);
+            if (!fs.existsSync(verDir)) { res.statusCode = 404; res.end(JSON.stringify({ error: 'not found' })); return; }
+            fs.rmSync(verDir, { recursive: true, force: true });
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ ok: true }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: e.message }));
+          }
+        });
+      });
+
       // ── /api/files/generate ──
       server.middlewares.use('/api/files/generate', (req, res) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
@@ -548,7 +573,7 @@ function filesPlugin(): Plugin {
       // ── /api/files ──
       server.middlewares.use('/api/files', (req, res) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
         if (req.method === 'OPTIONS') {
@@ -624,6 +649,27 @@ function filesPlugin(): Plugin {
               fs.writeFileSync(filePath, content || '');
               res.setHeader('Content-Type', 'application/json');
               res.end(JSON.stringify({ ok: true, name: safeName, type: fileType(safeName) }));
+            } catch (e: any) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: e.message }));
+            }
+          });
+          return;
+        }
+
+        if (req.method === 'DELETE') {
+          let body = '';
+          req.on('data', (chunk) => (body += chunk));
+          req.on('end', () => {
+            try {
+              const { filePath } = JSON.parse(body);
+              if (!filePath) { res.statusCode = 400; res.end(JSON.stringify({ error: 'filePath required' })); return; }
+              const safePath = path.resolve(PROJECT_ROOT, path.normalize(filePath));
+              if (!safePath.startsWith(PROJECT_ROOT)) { res.statusCode = 403; res.end(JSON.stringify({ error: 'forbidden' })); return; }
+              if (!fs.existsSync(safePath)) { res.statusCode = 404; res.end(JSON.stringify({ error: 'not found' })); return; }
+              fs.unlinkSync(safePath);
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ ok: true }));
             } catch (e: any) {
               res.statusCode = 500;
               res.end(JSON.stringify({ error: e.message }));

@@ -6,7 +6,7 @@
 - 目标版本：v0
 - 变更对象：b/ 目录下全部治理文档 + current/latest_plan.md + diffs/
 - 关联文档：b/body.md / b/version_summary / b/change_log / b/question_log / b/confirmation_log / b/lock_summary
-- 生成时间：2026-07-08 16:40
+- 生成时间：2026-07-09 16:09
 - 状态：confirmed
 
 ## 2. 变更摘要

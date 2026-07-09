@@ -4,10 +4,13 @@ export interface FileItem {
   type: 'folder' | 'md' | 'json' | 'log' | 'diff';
   status?: 'normal' | 'draft' | 'frozen' | 'archived';
   active?: boolean;
-  category?: 'a' | 'b' | 'c';
+  category?: 'a' | 'b' | 'c' | 'd' | 'x';
   children?: FileItem[];
   light?: 'gray' | 'green' | 'yellow'; // only for A group files
   lockedLight?: boolean;
+  hasTemplate?: boolean;
+  createdByUser?: boolean;
+  templateContent?: string;
 }
 
 export const files: FileItem[] = [
