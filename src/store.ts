@@ -1106,17 +1106,13 @@ async function callAI(apiKey: string, endpoint: string, msgs: ChatMessage[], ver
   if (retryContext) runtimeCtx = retryContext + '\n\n' + runtimeCtx;
 
   const chatMsgs = msgs.map((m) => ({ role: m.role as string, content: m.content }));
+  const lastUser = [...chatMsgs].reverse().find(m => m.role === 'user');
   const msgList = [
     { role: 'system', content: STATIC_SYSTEM },
     { role: 'user', content: runtimeCtx },
-    ...chatMsgs
+    ...(lastUser ? [lastUser] : []),
   ];
-  console.log('[callAI] ========== 发送给 AI 的消息结构（共' + msgList.length + '条）==========');
-  msgList.forEach((m, i) => {
-    console.log('[callAI] ─── 消息[' + i + '] role=' + m.role + ' length=' + m.content.length + ' ───');
-    console.log(m.content);
-  });
-  console.log('[callAI] ========== 消息结构结束 ==========');
+  console.log('[callAI] msgs=' + msgList.length + ' | ' + msgList.map(m => m.role[0] + ':' + m.content.length).join(' '));
   const maxTokens = resolveMaxTokens(questionCount);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30000);
