@@ -227,29 +227,31 @@ export default function ChatPanel({ isReadOnly }: Props) {
     setTimeout(() => { isComposing.current = false; }, 0);
   };
 
+  const submitOptions = () => {
+    if (isLoading || isReadOnly) return;
+    const answers = selectedAnswers.current;
+    const customs = customRef.current;
+    const parts: string[] = [];
+    for (const [idx, ans] of Object.entries(answers).sort(([a], [b]) => Number(a) - Number(b))) {
+      const custom = customs[Number(idx)] || '';
+      parts.push(`${Number(idx) + 1}. ${custom || ans.label}`);
+    }
+    if (parts.length > 0) {
+      const tagged = `【inputType=answer】\n` + parts.join('\n');
+      setInputText(tagged);
+      setTimeout(() => sendMessage(), 50);
+    }
+  };
+
   const doSend = () => {
+    if (isLoading || isReadOnly) return;
     const text = inputText.trim();
-    if (!text || isLoading || isReadOnly) return;
-    if (activeMode === 'submit') {
-      // Send selected options as answer
-      const answers = selectedAnswers.current;
-      const customs = customRef.current;
-      const parts: string[] = [];
-      for (const [idx, ans] of Object.entries(answers).sort(([a], [b]) => Number(a) - Number(b))) {
-        const custom = customs[Number(idx)] || '';
-        parts.push(`${Number(idx) + 1}. ${custom || ans.label}`);
-      }
-      if (parts.length > 0) {
-        const tagged = `【inputType=answer】\n` + parts.join('\n');
-        setInputText(tagged);
-        setTimeout(() => sendMessage(), 50);
-      }
-    } else if (activeMode === 'reply') {
+    if (!text) return;
+    if (activeMode === 'reply') {
       const tagged = `【inputType=answer】\n` + text;
       setInputText(tagged);
       setTimeout(() => sendMessage(), 50);
     } else {
-      // idea mode or first round (no activeMode)
       const tagged = `【inputType=idea】\n` + text;
       setInputText(tagged);
       setTimeout(() => sendMessage(), 50);
@@ -278,7 +280,6 @@ export default function ChatPanel({ isReadOnly }: Props) {
       if (questions.length > 0) lastQuestionCount = questions.length;
     }
   }
-  const canSubmit = lastQuestionCount > 0 && questionCompleted >= lastQuestionCount;
   const hasQuestions = lastQuestionCount > 0;
 
   return (
@@ -331,7 +332,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
           <div className={`input${isReadOnly ? ' readonly' : ''}`}>
             {hasQuestions && activeMode === null ? (
               <div className="mode-panel mode-panel-actions">
-                <button className="chat-submit-btn" disabled={isLoading} onClick={() => openMode('submit')}>提交选项</button>
+                <button className="chat-submit-btn" disabled={isLoading} onClick={submitOptions}>提交选项</button>
                 <div className="chat-actions-right">
                   <button className={`chat-submit-btn small${activeMode === 'reply' ? ' active' : ''}`} disabled={isLoading} onClick={() => openMode('reply')}>自由回复</button>
                   <button className={`chat-submit-btn small${activeMode === 'idea' ? ' active' : ''}`} disabled={isLoading} onClick={() => openMode('idea')}>新增想法</button>
