@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useStore } from '../../store';
 import './ChatPanel.css';
 
@@ -22,7 +22,6 @@ function parseQuestions(content: string): { restContent: string; questions: Pars
   const qBlock = qMatch[1];
   const restContent = content.replace(qMatch[0], '').trim();
 
-  // Split into blocks by question number boundaries (same approach as store.ts)
   const rawLines = qBlock.split('\n');
   const blocks: string[][] = [];
   let cur: string[] = [];
@@ -39,9 +38,8 @@ function parseQuestions(content: string): { restContent: string; questions: Pars
     const bl = block.map(l => l.trim()).filter(Boolean);
     if (bl.length === 0) continue;
     const idMatch = bl[0].match(/^(\d+)[.)、]?\s*(.*)$/);
-    if (!idMatch) continue; // skip blocks that don't start with a number
+    if (!idMatch) continue;
 
-    // Clean question text
     let questionText = idMatch[2]
       .replace(/\*\*/g, '').replace(/\*/g, '').replace(/^\.\s*/, '')
       .replace(/^[-–•]\s*/, '').replace(/\s+/g, ' ').trim();
@@ -69,7 +67,6 @@ function parseQuestions(content: string): { restContent: string; questions: Pars
         questionText = line.replace(/\*\*/g, '').replace(/\*/g, '').trim();
       }
     }
-    // Only add fallback if model didn't output it AND no self-fill in options
     const hasSelfFillOpt = options.some(o => o.label.startsWith('自行填写'));
     if (!hasSelfFill && !hasSelfFillOpt) {
       options.push({ label: '自行填写', desc: '输入你的答案' });
@@ -120,11 +117,25 @@ function QuestionCard({ questions, onSelectionChange, answersRef, customRef }: {
   const [customAnswers, setCustomAnswers] = useState<Record<number, string>>({});
 
   const updateSelection = (qIdx: number, optIdx: number, optLabel: string, isCustom: boolean) => {
-    const newCount = Object.keys({ ...selected, [qIdx]: optIdx }).length;
-    setSelected(prev => ({ ...prev, [qIdx]: optIdx }));
-    onSelectionChange?.(newCount);
-    if (answersRef) {
-      answersRef.current = { ...answersRef.current, [qIdx]: { label: optLabel, custom: customAnswers[qIdx] || '' } };
+    if (selected[qIdx] === optIdx) {
+      // Deselect
+      const next = { ...selected };
+      delete next[qIdx];
+      setSelected(next);
+      const newCount = Object.keys(next).length;
+      onSelectionChange?.(newCount);
+      if (answersRef) {
+        const nextAnswers = { ...answersRef.current };
+        delete nextAnswers[qIdx];
+        answersRef.current = nextAnswers;
+      }
+    } else {
+      const newCount = Object.keys({ ...selected, [qIdx]: optIdx }).length;
+      setSelected(prev => ({ ...prev, [qIdx]: optIdx }));
+      onSelectionChange?.(newCount);
+      if (answersRef) {
+        answersRef.current = { ...answersRef.current, [qIdx]: { label: optLabel, custom: customAnswers[qIdx] || '' } };
+      }
     }
   };
 
@@ -187,14 +198,14 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const sendMessage = useStore((s) => s.sendMessage);
   const isLoading = useStore((s) => s.isLoading);
   const apiKey = useStore((s) => s.apiKey);
-  const activeVersionId = useStore((s) => s.activeVersionId);
-  const generateVersionFiles = useStore((s) => s.generateVersionFiles);
   const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(new Set());
   const isComposing = useRef(false);
   const [questionCompleted, setQuestionCompleted] = useState(0);
   const selectedAnswers = useRef<Record<number, { label: string; custom: string }>>({});
   const customRef = useRef<Record<number, string>>({});
   const [inputExpanded, setInputExpanded] = useState(false);
+  const [activeMode, setActiveMode] = useState<'submit' | 'reply' | 'idea' | null>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
 
   const toggleMsg = (id: string) => {
     setExpandedMsgs((prev) => {
@@ -207,7 +218,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !isComposing.current && !isLoading) {
       e.preventDefault();
-      sendMessage();
+      doSend();
     }
   };
 
@@ -216,22 +227,59 @@ export default function ChatPanel({ isReadOnly }: Props) {
     setTimeout(() => { isComposing.current = false; }, 0);
   };
 
-  const handleSubmit = () => {
-    const answers = selectedAnswers.current;
-    const customs = customRef.current;
-    const parts: string[] = [];
-    for (const [idx, ans] of Object.entries(answers).sort(([a], [b]) => Number(a) - Number(b))) {
-      const custom = customs[Number(idx)] || '';
-      parts.push(`${Number(idx) + 1}. ${custom || ans.label}`);
-    }
-    if (parts.length > 0) {
-      const text = parts.join('\n');
-      console.log('[chatPanel] ========== 用户点击「提交」==========');
-      console.log('[chatPanel] 提交内容:', text);
-      setInputText(text);
+  const doSend = () => {
+    const text = inputText.trim();
+    if (!text || isLoading || isReadOnly) return;
+    if (activeMode === 'submit') {
+      // Send selected options as answer
+      const answers = selectedAnswers.current;
+      const customs = customRef.current;
+      const parts: string[] = [];
+      for (const [idx, ans] of Object.entries(answers).sort(([a], [b]) => Number(a) - Number(b))) {
+        const custom = customs[Number(idx)] || '';
+        parts.push(`${Number(idx) + 1}. ${custom || ans.label}`);
+      }
+      if (parts.length > 0) {
+        const tagged = `【inputType=answer】\n` + parts.join('\n');
+        setInputText(tagged);
+        setTimeout(() => sendMessage(), 50);
+      }
+    } else if (activeMode === 'reply') {
+      const tagged = `【inputType=answer】\n` + text;
+      setInputText(tagged);
+      setTimeout(() => sendMessage(), 50);
+    } else {
+      // idea mode or first round (no activeMode)
+      const tagged = `【inputType=idea】\n` + text;
+      setInputText(tagged);
       setTimeout(() => sendMessage(), 50);
     }
   };
+
+  const openMode = (mode: 'submit' | 'reply' | 'idea') => {
+    setActiveMode(prev => prev === mode ? null : mode);
+  };
+
+  // Close composer when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (composerRef.current && !composerRef.current.contains(e.target as Node)) {
+        setActiveMode(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  let lastQuestionCount = 0;
+  for (const m of messages) {
+    if (m.role === 'assistant') {
+      const { questions } = parseQuestions(m.content);
+      if (questions.length > 0) lastQuestionCount = questions.length;
+    }
+  }
+  const canSubmit = lastQuestionCount > 0 && questionCompleted >= lastQuestionCount;
+  const hasQuestions = lastQuestionCount > 0;
 
   return (
     <div className="chat">
@@ -277,46 +325,46 @@ export default function ChatPanel({ isReadOnly }: Props) {
         {isLoading && (
           <div className="loading-msg"><em>AI 思考中...</em></div>
         )}
-        {(() => {
-          let lastQuestionCount = 0;
-          for (const m of messages) {
-            if (m.role === 'assistant') {
-              const { questions } = parseQuestions(m.content);
-              if (questions.length > 0) lastQuestionCount = questions.length;
-            }
-          }
-          const canSubmit = lastQuestionCount > 0 && questionCompleted >= lastQuestionCount;
-          return (
-            <div className="chat-actions">
-              <button className="chat-submit-btn" disabled={isLoading || !canSubmit} onClick={handleSubmit}>提交</button>
-              <button className="chat-doc-btn" disabled={isLoading} onClick={() => { console.log('[chatPanel] ========== 用户点击「写入文档」=========='); generateVersionFiles(activeVersionId); }}>写入文档</button>
-            </div>
-          );
-        })()}
       </div>
-      <div className="composer">
-        <div className={`input${isReadOnly ? ' readonly' : ''}`}>
-          <button className="expand-btn" onClick={() => setInputExpanded(!inputExpanded)} title={inputExpanded ? '收起' : '放大'}>
-            {inputExpanded ? '▾' : '▴'}
-          </button>
-          <textarea
-            className="input-textarea"
-            style={{ minHeight: inputExpanded ? 280 : 40 }}
-            value={isReadOnly ? '' : inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onCompositionStart={() => { isComposing.current = true; }}
-            onCompositionEnd={handleCompositionEnd}
-            placeholder={isReadOnly ? '版本已锁定，只读' : isLoading ? 'AI 回复中...' : '输入想法或目标...'}
-            rows={3}
-            disabled={isReadOnly || isLoading}
-          />
-          <div className="footer">
-            <div className="hint">{isReadOnly ? '版本已锁定' : ''}</div>
-            <button className="btn" onClick={sendMessage} disabled={isReadOnly || isLoading}>发送</button>
+      {(!hasQuestions || activeMode !== null || (hasQuestions && activeMode === null)) && (
+        <div className="composer" ref={composerRef}>
+          <div className={`input${isReadOnly ? ' readonly' : ''}`}>
+            {hasQuestions && activeMode === null ? (
+              <div className="mode-panel mode-panel-actions">
+                <button className="chat-submit-btn" disabled={isLoading} onClick={() => openMode('submit')}>提交选项</button>
+                <div className="chat-actions-right">
+                  <button className={`chat-submit-btn small${activeMode === 'reply' ? ' active' : ''}`} disabled={isLoading} onClick={() => openMode('reply')}>自由回复</button>
+                  <button className={`chat-submit-btn small${activeMode === 'idea' ? ' active' : ''}`} disabled={isLoading} onClick={() => openMode('idea')}>新增想法</button>
+                </div>
+              </div>
+            ) : (
+              <div className="mode-panel mode-panel-compose">
+                <div className="textarea-wrap">
+                  <textarea
+                    className="input-textarea"
+                    style={{ minHeight: inputExpanded ? 280 : 40 }}
+                    value={isReadOnly ? '' : inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onCompositionStart={() => { isComposing.current = true; }}
+                    onCompositionEnd={handleCompositionEnd}
+                    placeholder=""
+                    rows={3}
+                    disabled={isReadOnly || isLoading}
+                  />
+                  <button className="expand-btn" onClick={() => setInputExpanded(!inputExpanded)} title={inputExpanded ? '收起' : '放大'}>
+                    <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 8 Q6 4 10 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M2 4.5 Q6 0.5 10 4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                  </button>
+                </div>
+                <div className="footer">
+                  <div className="hint">{isReadOnly ? '版本已锁定' : activeMode === 'reply' ? '快捷回复问题' : activeMode === 'idea' ? '新增想法或目标' : '新增想法或目标'}</div>
+                  <button className="btn" onClick={doSend} disabled={isReadOnly || isLoading}>发送</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

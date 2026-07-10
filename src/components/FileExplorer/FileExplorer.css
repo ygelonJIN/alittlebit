@@ -55,7 +55,7 @@
 .group-header:hover { background: rgba(255,255,255,0.03); }
 .group-header .group-arrow { font-size: 10px; width: 14px; text-align: center; color: var(--muted); flex-shrink: 0; transition: transform 0.15s; }
 
-.group-a .group-header, .group-b .group-header, .group-c .group-header, .group-d .group-header, .group-x .group-header { color: #c4b5fd; }
+.group-a .group-header, .group-b .group-header, .group-c .group-header, .group-d .group-header, .group-x .group-header { color: var(--accent); }
 .group-a .group-header:hover, .group-b .group-header:hover, .group-c .group-header:hover, .group-d .group-header:hover, .group-x .group-header:hover { background: rgba(255,255,255,0.02); }
 .group-a .group-header.expanded .group-arrow, .group-b .group-header.expanded .group-arrow, .group-c .group-header.expanded .group-arrow, .group-d .group-header.expanded .group-arrow, .group-x .group-header.expanded .group-arrow { color: #a78bfa; transform: rotate(90deg); }
 

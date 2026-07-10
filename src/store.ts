@@ -56,6 +56,24 @@ export interface AppState {
   questionGen: QuestionGenState | null;
 }
 
+// ── Heading node (for document section matching) ──
+interface HeadingNode {
+  level: number;
+  title: string;
+  bodyLines: string[];
+  startLine: number;
+}
+
+// ── Merge result (structured write outcome) ──
+interface MergeResult {
+  ok: boolean;
+  content: string;
+  matchedHeading?: string;
+  matchLevel?: number;
+  matchType?: 'exact' | 'title-only';
+  reason?: 'not_found' | 'empty_instruction';
+}
+
 // ── Question generation state machine ──
 type QuestionGenStatus = 'first' | 'filling' | 'retrying' | 'done' | 'failed';
 
@@ -281,7 +299,7 @@ const SYSTEM_PROMPT = [
   '==================================================',
   '十三、结构化输出协议（必须严格遵守）',
   '==================================================',
-  '【这是你最重要的任务】每轮回复末尾必须输出 ```json 协议块，无一例外。即使本轮没有任何要写入的内容，也要输出包含空 writeActions 的完整协议。前端依赖此协议执行自动回填，缺失协议块等于本轮工作白做。',
+  '【这是你最重要的任务】每轮回复末尾必须输出 ```json 协议块，无一例外。即使用户只是选了选项，也必须输出 writeActions 把本轮确认的内容写入文档。禁止输出空的 writeActions。',
   '协议格式（严格按此结构）：',
   '{',
   '  "currentDocument": { "type": "文档类型", "file": "文件名", "status": "gray/yellow/green" },',
@@ -434,65 +452,83 @@ function normalizeTargetFile(targetFile: string, activeFileId: string, files: Fi
   return sibling?.id ?? activeFileId;
 }
 
-function mergeAContent(currentContent: string, action: any): string {
-  let instruction = typeof action?.content === 'string' ? action.content.trim() : '';
-  // Strip template artifacts: remove everything from the first stray ## section header onward
-  const strayHeaderIdx = instruction.search(/\n##\s/);
-  if (strayHeaderIdx > 0) {
-    const stripped = instruction.slice(0, strayHeaderIdx).trim();
-    console.log('[autoWrite] mergeAContent: 裁剪模板残渣, 原长度=', instruction.length, '裁剪后=', stripped.length);
-    instruction = stripped;
-  }
-  const section = typeof action?.targetSection === 'string' ? action.targetSection.trim() : '';
-  console.log('[autoWrite] mergeAContent: section=', section, 'instruction length=', instruction.length);
-  if (!instruction) { console.log('[autoWrite] mergeAContent: instruction 为空, 跳过'); return currentContent; }
+function resolveHeadingMatch(headings: HeadingNode[], targetTitle: string): { node: HeadingNode; matchType: 'exact' | 'title-only' } | null {
+  const normalizedTarget = normalizeHeadingText(targetTitle);
+  const exact = headings.find((node) => normalizeHeadingText(node.title) === normalizedTarget);
+  if (exact) return { node: exact, matchType: 'exact' };
 
+  const targetTokens = normalizedTarget.split(' ').filter(Boolean);
+  if (targetTokens.length === 0) return null;
+  const titleOnly = headings.find((node) => {
+    const normalizedTitle = normalizeHeadingText(node.title);
+    if (normalizedTitle === normalizedTarget) return true;
+    if (normalizedTitle.endsWith(normalizedTarget) || normalizedTitle.startsWith(normalizedTarget)) return true;
+    const headToken = targetTokens[0];
+    const tailToken = targetTokens[targetTokens.length - 1];
+    return normalizedTitle.endsWith(' ' + normalizedTarget) || normalizedTitle.startsWith(normalizedTarget + ' ') || normalizedTitle.endsWith(' ' + tailToken) || normalizedTitle.startsWith(headToken + ' ');
+  });
+  return titleOnly ? { node: titleOnly, matchType: 'title-only' } : null;
+}
+
+function mergeAContent(currentContent: string, action: any): MergeResult {
+  let instruction = typeof action?.content === 'string' ? action.content.trim() : '';
+  const section = typeof action?.targetSection === 'string' ? action.targetSection.trim() : '';
   if (!section) {
     console.log('[autoWrite] mergeAContent: 无 targetSection, 插入首标题下');
-    return upsertUnderFirstHeading(currentContent, instruction);
+    return { ok: true, content: upsertUnderFirstHeading(currentContent, instruction) };
   }
 
-  // Split document by H2 headings, preserving heading lines
-  const heading = section.startsWith('#') ? section : '## ' + section;
-  const lines = currentContent.split('\n');
-  const sections: { heading: string; bodyLines: string[] }[] = [];
-  let curHeading = '';
-  let curBody: string[] = [];
+  const headings = parseAllHeadings(currentContent);
+  const match = resolveHeadingMatch(headings, section);
+  if (!match) {
+    console.warn('[autoWrite] mergeAContent: 未找到 section=', section, 'targetTitle=', normalizeHeadingText(section));
+    return { ok: false, content: currentContent, reason: 'not_found' };
+  }
 
-  for (const line of lines) {
-    if (/^##\s/.test(line)) {
-      if (curHeading) sections.push({ heading: curHeading, bodyLines: curBody });
-      curHeading = line;
-      curBody = [];
-    } else {
-      curBody.push(line);
+  // Level-aware stray header cleaning: only cut at sibling/parent headers, keep sub-headers
+  const targetLevel = match.node.level;
+  const instLines = instruction.split('\n');
+  let cutIdx = instLines.length;
+  for (let i = 0; i < instLines.length; i++) {
+    const m = instLines[i].match(/^(#{1,6})\s+/);
+    if (m && m[1].length <= targetLevel) {
+      cutIdx = i;
+      break;
     }
   }
-  if (curHeading) sections.push({ heading: curHeading, bodyLines: curBody });
-
-  // Find the target section
-  const idx = sections.findIndex(s => s.heading.trim() === heading.trim());
-  if (idx < 0) {
-    console.log('[autoWrite] mergeAContent: 未找到 section=', heading, ', 追加到末尾');
-    const base = currentContent.trim();
-    const block = heading + '\n' + instruction;
-    return base ? base + '\n\n' + block : block;
+  if (cutIdx < instLines.length) {
+    const stripped = instLines.slice(0, cutIdx).join('\n').trim();
+    console.log('[autoWrite] mergeAContent: 裁剪越界标题, 原长度=', instruction.length, '裁剪后=', stripped.length, 'targetLevel=', targetLevel, '越界行=', instLines[cutIdx].slice(0, 40));
+    instruction = stripped;
   }
 
-  const existing = sections[idx].bodyLines.join('\n').trim();
-  console.log('[autoWrite] mergeAContent: 找到 section, existing length=', existing.length, 'includes instruction?', existing.includes(instruction));
-
-  // Replace section content entirely with instruction (not append)
-  // This avoids corruption from internal ## headers
-  sections[idx].bodyLines = instruction.split('\n');
-
-  // Reassemble
-  const result: string[] = [];
-  for (const s of sections) {
-    result.push(s.heading);
-    result.push(...s.bodyLines);
+  console.log('[autoWrite] mergeAContent: section=', section, 'instruction length=', instruction.length);
+  if (!instruction) {
+    console.log('[autoWrite] mergeAContent: instruction 为空, 跳过');
+    return { ok: false, content: currentContent, reason: 'empty_instruction' };
   }
-  return result.join('\n');
+
+  let skipChildren = false;
+  const nextContent = headings.map((node) => {
+    const headingLine = `${'#'.repeat(node.level)} ${node.title}`;
+    if (node === match.node) {
+      skipChildren = true;
+      return [headingLine, ...instruction.split('\n')].join('\n');
+    }
+    if (skipChildren && node.level > match.node.level) return null;
+    skipChildren = false;
+    return [headingLine, ...node.bodyLines].join('\n');
+  }).filter(Boolean).join('\n');
+
+  const matchedHeading = `${'#'.repeat(match.node.level)} ${match.node.title}`;
+  console.log('[autoWrite] mergeAContent: 找到 section, heading=', matchedHeading, 'level=', match.node.level, 'matchType=', match.matchType, 'existing body lines=', match.node.bodyLines.length);
+  return {
+    ok: true,
+    content: nextContent,
+    matchedHeading,
+    matchLevel: match.node.level,
+    matchType: match.matchType,
+  };
 }
 
 
@@ -558,6 +594,8 @@ function buildRuntimeContext(questionCount: number, versions: any[], activeId: s
     '当前激活文档：' + (currentDocType ? currentDocType + ' (' + (activeFile?.light ?? 'gray') + '灯)' : '无（未选择 A 类文档）'),
     '当前提问模式：' + mode,
     '',
+    '项目领域边界：只讨论与 ' + (currentDocType || '当前文档') + ' 直接相关的概念，禁止引入不属于本项目的机制或术语。',
+    '',
     '文档链进度：',
     chainStatus.trim(),
     '',
@@ -566,6 +604,7 @@ function buildRuntimeContext(questionCount: number, versions: any[], activeId: s
     '- 黄灯：建议收口，但仍可补问',
     '- 绿灯/锁定：当前文档结束，不得追问',
     '- 当前文档未完成（灰/黄），不得跳到下一个文档',
+    '- 当前文档内按 section 顺序优先追问，前面未完成的 section 补完之前不得跳到后面的 section',
     '- 当前文档完成后，自动进入下一个文档',
     '- 不输出未激活文档的内容',
     '',
@@ -575,6 +614,7 @@ function buildRuntimeContext(questionCount: number, versions: any[], activeId: s
   ctx += '【问题输出格式模板】\n' + questionList + '\n\n';
   ctx += context;
   ctx += '\n\n【协议要求 — 本轮必须执行】\n';
+  ctx += '输入类型路由：用户消息以【inputType=answer】开头时，表明这是对当前问题的答案，必须输出 writeActions 写入文档。以【inputType=idea】开头时，表明这是新想法，必须开启新一轮追问，不得映射为当前问题答案。\n';
   ctx += '你的回复末尾必须包含 ```json 协议块。即使用户只是选了选项、说了"好"、或简短回答，也必须输出。\n';
   ctx += 'writeActions.content 规则：\n';
   ctx += '  1. 只写本轮用户明确确认的内容，写成可直接放入文档的正文。\n';
@@ -582,7 +622,7 @@ function buildRuntimeContext(questionCount: number, versions: any[], activeId: s
   ctx += '  3. 禁止包含其他 section 的 ## 标题。\n';
   ctx += '  4. 只写 targetSection 指定的那个段落的内容，不要越界写其他 section。\n';
   ctx += '  5. 用户选了选项A"30次用完锁定"，写成"猜错上限30次，用完永久锁定"，不是"用户选择了A"。\n';
-  ctx += '如果用户本轮回答确认了某个重要信息，立即写入对应 section。不要延迟到下一轮。';
+  ctx += '本轮用户回答（包括选项选择）确认的所有信息都是重要信息，必须全部写入对应 section。禁止延迟写入、禁止跳过。writeActions 不得为空。';
   if (stage === 'collecting') ctx += '\n\n当前阶段: 收集中。请围绕缺口继续追问。';
   if (stage === 'refining') ctx += '\n\n当前阶段: 精进中。方向已明确。';
   if (stage === 'confirmed') ctx += '\n\n当前阶段: 已确认。可要求 locklock 锁定。';
@@ -634,18 +674,28 @@ async function executeProtocol(store: any, protocol: any) {
 
   if (writeActions.length > 0) {
     const normalizedActions = writeActions.map((a: any) => ({ ...a, targetFile: normalizeTargetFile(a?.targetFile || '', activeFile?.id || store.activeFileId, store.files) }));
-    const matchingAction = normalizedActions.find((a: any) => a.targetFile === activeFile?.id) ?? normalizedActions[0];
-    console.log('[autoWrite] executeProtocol: matchingAction targetFile=', matchingAction?.targetFile, 'section=', matchingAction?.targetSection);
-    if (matchingAction) {
-      const currentContent = store.lines.map((l: any) => l.text).join('\n');
-      const nextContent = mergeAContent(currentContent, matchingAction);
-      console.log('[autoWrite] executeProtocol: content length before=', currentContent.length, 'after=', nextContent.length);
-      // Show what was actually added
-      if (nextContent !== currentContent) {
-        const added = nextContent.length > currentContent.length ? nextContent.slice(currentContent.length) : '(替换)';
-        console.log('[autoWrite] executeProtocol: 新增内容:', added.slice(0, 300));
+    console.log('[autoWrite] executeProtocol: normalizedActions=', normalizedActions.map((a: any) => ({ targetFile: a.targetFile, targetSection: a.targetSection })));
+
+    let workingContent = store.lines.map((l: any) => l.text).join('\n');
+    let wroteAny = false;
+    for (const action of normalizedActions) {
+      console.log('[autoWrite] executeProtocol: 执行 action section=', action?.targetSection);
+      const mergeResult = mergeAContent(workingContent, action);
+      if (!mergeResult.ok) {
+        console.warn('[autoWrite] executeProtocol: mergeAContent 失败, reason=', mergeResult.reason, 'section=', action?.targetSection);
+        continue;
       }
-      const nextLines = nextContent.split('\n').map((text: string, i: number) => ({
+      console.log('[autoWrite] executeProtocol: content length before=', workingContent.length, 'after=', mergeResult.content.length);
+      if (mergeResult.content !== workingContent) {
+        const added = mergeResult.content.length > workingContent.length ? mergeResult.content.slice(workingContent.length) : '(替换)';
+        console.log('[autoWrite] executeProtocol: 新增内容:', added.slice(0, 200));
+      }
+      workingContent = mergeResult.content;
+      wroteAny = true;
+    }
+
+    if (wroteAny) {
+      const nextLines = workingContent.split('\n').map((text: string, i: number) => ({
         id: 'wL' + (i + 1),
         lineNumber: i + 1,
         text,
@@ -657,12 +707,12 @@ async function executeProtocol(store: any, protocol: any) {
       await fetch('/api/files/write', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filePath: 'letsgo/versions/' + activeVersionId + '/' + matchingAction.targetFile, content: nextContent }),
+        body: JSON.stringify({ filePath: 'letsgo/versions/' + activeVersionId + '/' + (activeFile?.id || ''), content: workingContent }),
       });
       console.log('[autoWrite] executeProtocol: 磁盘写入完成');
-      store.selectFile(matchingAction.targetFile);
+      store.selectFile(activeFile?.id || '');
       console.log('[autoWrite] executeProtocol: selectFile 完成');
-      syncBAfterWrite(matchingAction.targetFile, matchingAction.content, protocol.questions ?? [], protocol.confirmations ?? [], activeVersionId);
+      syncBAfterWrite(activeFile?.id || '', writeActions.map((a: any) => a?.content || '').join('\n'), protocol.questions ?? [], protocol.confirmations ?? [], activeVersionId);
     }
   }
 
@@ -721,28 +771,43 @@ export interface DocumentProgress {
   reason: string;
 }
 
-// ── Heading parser ──
-type HeadingNode = { level: number; title: string; start: number; end: number };
 
-function parseHeadings(content: string): HeadingNode[] {
+// ── Heading parser ──
+
+function normalizeHeadingText(text: string): string {
+  return text.trim().replace(/\s+/g, ' ');
+}
+
+function parseAllHeadings(content: string): HeadingNode[] {
+  const lines = content.split('\n');
   const nodes: HeadingNode[] = [];
-  const regex = /^(#{1,6})\s+(.+)$/gm;
-  let m: RegExpExecArray | null;
-  while ((m = regex.exec(content)) !== null) {
-    nodes.push({ level: m[1].length, title: m[2].trim(), start: m.index, end: m.index + m[0].length });
+  let current: HeadingNode | null = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const match = line.match(/^(#{1,6})\s+(.+)$/);
+    if (match) {
+      if (current) nodes.push(current);
+      current = {
+        level: match[1].length,
+        title: match[2].trim(),
+        bodyLines: [],
+        startLine: i,
+      };
+    } else if (current) {
+      current.bodyLines.push(line);
+    }
   }
+
+  if (current) nodes.push(current);
   return nodes;
 }
 
 function extractSectionBody(content: string, headings: HeadingNode[], sectionTitle: string): string {
-  const idx = headings.findIndex(h => h.title.includes(sectionTitle));
-  if (idx < 0) return '';
-  const cur = headings[idx];
-  let end = content.length;
-  for (let i = idx + 1; i < headings.length; i++) {
-    if (headings[i].level <= cur.level) { end = headings[i].start; break; }
-  }
-  return content.slice(cur.end, end).trim();
+  const normalizedTarget = normalizeHeadingText(sectionTitle);
+  const match = resolveHeadingMatch(headings, normalizedTarget);
+  if (!match) return '';
+  return match.node.bodyLines.join('\n').trim();
 }
 
 function isMeaningfulSectionBody(body: string): boolean {
@@ -815,7 +880,7 @@ function getMeaningfulTextLength(content: string): number {
 
 function analyzeDocument(content: string, docName: string) {
   const required = getRequiredSections(docName);
-  const headings = parseHeadings(content);
+  const headings = parseAllHeadings(content);
   const sectionResults = required.map(section => {
     const body = extractSectionBody(content, headings, section);
     return { section, body, complete: isMeaningfulSectionBody(body) };
@@ -1091,14 +1156,6 @@ function validateQuestionBlock(block: ParsedQuestionBlock, targetCount: number):
   return result;
 }
 
-function resolveMaxTokens(questionCount: number): number {
-  if (questionCount >= 80) return 12288;
-  if (questionCount >= 50) return 8192;
-  if (questionCount >= 20) return 4096;
-  if (questionCount >= 10) return 3072;
-  return 2048;
-}
-
 interface TokenUsage { prompt: number; completion: number; total: number; }
 
 async function callAI(apiKey: string, endpoint: string, msgs: ChatMessage[], versions: any[], activeId: string, questionCount: number, files: FileItem[], activeFileId: string, snapshot: string, retryContext?: string): Promise<{ content: string; usage: TokenUsage | null }> {
@@ -1113,14 +1170,13 @@ async function callAI(apiKey: string, endpoint: string, msgs: ChatMessage[], ver
     ...(lastUser ? [lastUser] : []),
   ];
   console.log('[callAI] msgs=' + msgList.length + ' | ' + msgList.map(m => m.role[0] + ':' + m.content.length).join(' '));
-  const maxTokens = resolveMaxTokens(questionCount);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30000);
   try {
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
-      body: JSON.stringify({ model: 'deepseek-chat', messages: msgList, temperature: 0.7, max_tokens: maxTokens }),
+      body: JSON.stringify({ model: 'deepseek-chat', messages: msgList, temperature: 0.7, max_tokens: 16384 }),
       signal: controller.signal,
     });
     clearTimeout(timer);
@@ -1372,14 +1428,22 @@ export const useStore = create<AppState>((set, get) => ({
     set({ pendingAction: null });
     const versions = get().versions;
     const version = versions.find((v) => v.id === id) as any;
-    const newLines = versionContent[id] ?? [{ id: 'loading', lineNumber: 1, text: '// 加载中...', type: 'meta', active: true }];
-    set({
-      versions: versions.map((v) => ({ ...v, active: v.id === id })),
-      activeVersionId: id,
-      lines: newLines,
-      activeLineId: newLines[0]?.id ?? '',
-      isReadOnly: version?.locked ?? false,
-    });
+    const isCurrentVersion = get().activeVersionId === id;
+    if (!isCurrentVersion) {
+      const newLines = versionContent[id] ?? [{ id: 'loading', lineNumber: 1, text: '// 加载中...', type: 'meta', active: true }];
+      set({
+        versions: versions.map((v) => ({ ...v, active: v.id === id })),
+        activeVersionId: id,
+        lines: newLines,
+        activeLineId: newLines[0]?.id ?? '',
+        isReadOnly: version?.locked ?? false,
+      });
+    } else {
+      set({
+        versions: versions.map((v) => ({ ...v, active: v.id === id })),
+        isReadOnly: version?.locked ?? false,
+      });
+    }
     // Load version-specific files
     fetch('/api/files?dir=letsgo/versions/' + id)
       .then((r) => r.json())
@@ -1540,6 +1604,39 @@ export const useStore = create<AppState>((set, get) => ({
             messages: [...s.messages, { id: 'm' + (msgCounter++), role: 'assistant' as const, content: 'AI 回复缺少协议块，未执行自动回填。', timestamp: now() }],
           }));
         } else {
+          // ── 窄重试：confirmations 非空但 writeActions 为空 → 补写一次 ──
+          const writeActions = Array.isArray(protocol.writeActions) ? protocol.writeActions : [];
+          const confirmations = Array.isArray(protocol.confirmations) ? protocol.confirmations : [];
+          if (writeActions.length === 0 && confirmations.length > 0) {
+            console.log('[autoWrite] sendMessage: writeActions 为空但 confirmations 非空, 触发窄重试');
+            const fillPrompt = [
+              '【紧急补写指令】',
+              '上一轮你确认了以下信息但未输出 writeActions：',
+              ...confirmations.map((c: string, i: number) => `${i + 1}. ${c}`),
+              '',
+              '现在只补写 writeActions，不重写整段回复。',
+              '输出格式：纯 JSON 数组，每个元素含 targetFile(targetFile 是当前A类文档的文件名，如 "a/01-prd.md")、targetSection、content。',
+              '输出示例：',
+              '[{ "targetFile": "a/01-prd.md", "targetSection": "2. 背景与概述", "content": "..." }]',
+              '不得输出其他文字或代码块标记，只输出 JSON 数组。',
+            ].join('\n');
+            try {
+              const { content: fillReply } = await callAI(apiKey, get().apiEndpoint, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot, fillPrompt);
+              const jsonMatch = fillReply.match(/\[[\s\S]*?\]/);
+              if (jsonMatch) {
+                const filled = JSON.parse(jsonMatch[0]);
+                if (Array.isArray(filled) && filled.length > 0) {
+                  protocol.writeActions = filled;
+                  console.log('[autoWrite] sendMessage: 窄重试成功, 补写 writeActions count=', filled.length);
+                }
+              } else {
+                console.warn('[autoWrite] sendMessage: 窄重试失败, 未从回复中提取 JSON 数组');
+              }
+            } catch (e: any) {
+              console.warn('[autoWrite] sendMessage: 窄重试异常', e?.message || e);
+            }
+          }
+
           console.log('[autoWrite] sendMessage: 100ms 后执行 executeProtocol');
           setTimeout(() => {
             executeProtocol(get(), protocol).catch((err: any) => {
