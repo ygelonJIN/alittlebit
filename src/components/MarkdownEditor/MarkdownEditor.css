@@ -51,19 +51,18 @@
   flex: 1;
   justify-content: center;
   border: none;
+  border-top: 3px solid transparent;
   border-right: 1px solid var(--line-light);
-  border-radius: 0;
   font-size: 13px; color: var(--muted);
   cursor: pointer;
   background: rgba(255,255,255,0.05);
   height: 100%;
-  transition: background 0.15s;
+  transition: background 0.15s, border-color 0.15s;
 }
 .ver-tab-inline:hover { background: rgba(255,255,255,0.04); }
 .ver-tab-inline.active {
   background: var(--accent-soft);
-  border-top: 3px solid var(--accent);
-  border-bottom: none;
+  border-top-color: var(--accent);
   border-right: 1px solid var(--line-light);
   color: #f8faff;
 }
@@ -73,7 +72,7 @@
 .ver-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; flex-shrink: 0; }
 
 .ver-lock-pill {
-  width: 10px; height: 10px; border-radius: 2px;
+  width: 10px; height: 10px;
   background: #555; cursor: pointer; flex-shrink: 0;
   transition: background 0.15s, box-shadow 0.15s;
 }
@@ -81,31 +80,35 @@
 .ver-lock-pill.locked { background: #28c840; box-shadow: 0 0 4px rgba(40,200,64,0.4); }
 
 .ver-next-btn {
-  width: 40px; height: 20px; border-radius: 999px;
-  border: 1px solid rgba(82,196,26,0.20);
-  background: rgba(82,196,26,0.10);
+  height: 20px;
+  padding: 0 8px;
+  border: none;
+  border-left: 2px solid transparent;
+  background: transparent;
   color: #7cb305;
   font-size: 10px; font-weight: 600; cursor: pointer;
-  padding: 0;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s;
 }
-.ver-next-btn:hover { background: rgba(82,196,26,0.20); }
+.ver-next-btn:hover { background: rgba(82,196,26,0.12); border-left-color: #7cb305; }
 
 .ver-delete-btn {
-  width: 40px; height: 20px; border-radius: 999px;
-  border: 1px solid rgba(255,77,79,0.20);
-  background: rgba(255,77,79,0.10);
+  height: 20px;
+  padding: 0 8px;
+  border: none;
+  border-left: 2px solid transparent;
+  background: transparent;
   color: #ff4d4f;
   font-size: 10px; font-weight: 600; cursor: pointer;
-  padding: 0;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s;
 }
-.ver-delete-btn:hover { background: rgba(255,77,79,0.20); }
+.ver-delete-btn:hover { background: rgba(255,77,79,0.12); border-left-color: #ff4d4f; }
 
 .ver-tab-rename {
   background: transparent; border: 1px solid var(--accent);
-  border-radius: 3px; color: #f8faff;
+  color: #f8faff;
   font-size: 12px; padding: 2px 6px; outline: none; width: 80px;
 }

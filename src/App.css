@@ -9,7 +9,6 @@
   height: 100%;
   margin: 0 auto;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
   overflow: hidden;
   background: rgba(6, 9, 18, 0.9);
   box-shadow: 0 34px 110px rgba(0, 0, 0, 0.55);
@@ -28,7 +27,7 @@
 }
 
 .traffic { display: flex; gap: 8px; }
-.dot { width: 12px; height: 12px; border-radius: 50%; }
+.dot { width: 12px; height: 12px; }
 .dot.red { background: #ff5f57; }
 .dot.yellow { background: #febc2e; }
 .dot.green { background: #28c840; }
@@ -36,16 +35,17 @@
 
 .titlebar-settings {
   margin-left: auto;
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 9px;
+  border: none;
+  border-left: 2px solid transparent;
   padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.04);
-  color: #f8faff;
+  background: transparent;
+  color: var(--text-secondary);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
-.titlebar-settings:hover { background: rgba(255, 255, 255, 0.08); }
+.titlebar-settings:hover { background: var(--accent-soft); border-left-color: var(--accent); color: #f8faff; }
 .titlebar-dropdown { position: relative; margin-left: 8px; }
 .titlebar-status { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .titlebar-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
@@ -55,7 +55,6 @@
   top: 100%; left: 0;
   margin-top: 6px;
   border: 1px solid var(--line);
-  border-radius: 6px;
   background: var(--bg-panel);
   backdrop-filter: blur(18px);
   box-shadow: 0 8px 32px rgba(0,0,0,0.4);
@@ -69,9 +68,11 @@
   color: var(--text-secondary);
   cursor: pointer;
   border-bottom: 1px solid rgba(165,182,206,0.06);
+  border-left: 3px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
 }
 .dropdown-item:last-child { border-bottom: none; }
-.dropdown-item:hover { background: rgba(124,58,237,0.15); color: #f8faff; }
+.dropdown-item:hover { background: var(--accent-soft); color: #f8faff; border-left-color: var(--accent); }
 
 .layout {
   display: grid;
@@ -100,6 +101,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: background 0.15s, color 0.15s;
 }
 .ver-nav-btn:hover:not(:disabled) { background: rgba(255,255,255,0.06); color: #f8faff; }
 .ver-nav-btn:disabled { opacity: 0.25; cursor: default; }
@@ -142,7 +144,6 @@
 .qg-badge {
   font-size: 12px;
   padding: 2px 8px;
-  border-radius: 3px;
   margin-left: 8px;
   white-space: nowrap;
   font-weight: 500;

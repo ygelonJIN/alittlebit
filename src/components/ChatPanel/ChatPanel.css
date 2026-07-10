@@ -39,11 +39,11 @@
 .msg-user {
   max-width: 88%;
   margin-left: auto;
-  border: 1px solid var(--accent);
-  border-radius: 16px 16px 4px 16px;
-  padding: 10px 14px;
-  background: var(--accent-soft);
-  color: #f8faff;
+  border: none;
+  border-right: 3px solid rgba(255,255,255,0.25);
+  padding: 12px 16px;
+  background: rgba(255,255,255,0.12);
+  color: var(--text);
   font-size: 13px;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -67,10 +67,9 @@
 
 /* ── Chat cards ── */
 .chat-card {
-  border: 1px solid rgba(124, 58, 237, 0.12);
-  border-radius: 0;
+  border: none;
   overflow: hidden;
-  background: rgba(124, 58, 237, 0.03);
+  background: transparent;
 }
 
 .chat-card-head {
@@ -99,7 +98,6 @@
   align-items: center;
   font-size: 11px;
   padding: 2px 8px;
-  border-radius: 4px;
   background: rgba(124, 58, 237, 0.15);
   color: #a78bfa;
   border: 1px solid rgba(124, 58, 237, 0.2);
@@ -128,9 +126,9 @@
   display: flex;
   gap: 10px;
   padding: 10px 12px;
-  border: 1px solid rgba(124, 58, 237, 0.12);
-  border-radius: 0;
-  background: rgba(124, 58, 237, 0.04);
+  border: none;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
   align-items: flex-start;
 }
 
@@ -140,7 +138,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
   background: rgba(124, 58, 237, 0.15);
   color: #a78bfa;
   font-size: 12px;
@@ -173,8 +170,9 @@
   display: flex;
   gap: 10px;
   padding: 8px 10px;
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 4px;
+  border: none;
+  border-left: 2px solid transparent;
+  background: transparent;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
   align-items: flex-start;
@@ -182,18 +180,17 @@
 
 .q-option:hover {
   background: rgba(124, 58, 237, 0.06);
-  border-color: rgba(124, 58, 237, 0.2);
+  border-left-color: rgba(124, 58, 237, 0.3);
 }
 
 .q-option.q-selected {
-  background: #14102e;
-  border-color: var(--accent);
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
 }
 
 .q-radio {
   width: 14px;
   height: 14px;
-  border-radius: 50%;
   border: 2px solid #555;
   flex-shrink: 0;
   margin-top: 2px;
@@ -226,7 +223,8 @@
 
 /* Self-fill option */
 .q-self-fill {
-  border-style: dashed;
+  border-left-style: dashed;
+  border-left-color: rgba(124, 58, 237, 0.3);
 }
 .q-self-fill .q-opt-label {
   color: var(--muted);
@@ -237,7 +235,6 @@
   width: 100%;
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(124, 58, 237, 0.2);
-  border-radius: 4px;
   padding: 6px 8px;
   color: #f8faff;
   font-size: 12px;
@@ -270,7 +267,6 @@
 .chat-submit-btn {
   flex: 1;
   border: 0;
-  border-radius: 0;
   padding: 10px 12px;
   background: rgba(124, 58, 237, 0.025);
   color: #fff;
@@ -343,7 +339,6 @@
   cursor: pointer;
   padding: 4px;
   z-index: 1;
-  border-radius: 2px;
 }
 .expand-btn:hover {
   background: rgba(255,255,255,0.06);
@@ -374,7 +369,6 @@
 .input {
   border: none;
   border-bottom: 3px solid var(--accent);
-  border-radius: 0;
   background: var(--accent-soft);
   padding: 0;
   display: flex;
@@ -390,7 +384,6 @@
   min-height: 36px;
   max-height: 90px;
   border: 1px solid rgba(124, 58, 237, 0.2);
-  border-radius: 4px;
   padding: 6px 8px;
   background: rgba(255,255,255,0.04);
   color: #f8faff;
@@ -420,14 +413,17 @@
 }
 
 .btn {
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: var(--radius-md);
-  padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.04);
+  border: none;
+  padding: 8px 16px;
+  background: var(--accent);
   color: #f8faff;
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
+  transition: background 0.15s;
+}
+.btn:hover {
+  background: #8b5cf6;
 }
 
 .btn:disabled {
@@ -456,7 +452,6 @@
   background: rgba(0,0,0,0.2);
   padding: 8px 12px;
   margin: 0;
-  border-radius: 4px;
   overflow-x: auto;
   white-space: pre;
   max-height: 300px;

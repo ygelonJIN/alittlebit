@@ -15,10 +15,6 @@
   --accent-border: rgba(124, 58, 237, 0.20);
   --mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   --ui: Inter, system-ui, sans-serif;
-  --radius: 24px;
-  --radius-sm: 6px;
-  --radius-md: 9px;
-  --radius-lg: 12px;
   --header-height: 48px;
   --titlebar-height: 54px;
   --version-tabs-height: 28px;
@@ -58,7 +54,6 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.05);
-  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
