@@ -21,8 +21,6 @@ export const files: FileItem[] = [
   {
     id: 'group:b', name: 'B 治理文档', type: 'folder', category: 'b',
     children: [
-      { id: 'f1', name: 'body.md', type: 'md', category: 'b', active: true },
-      { id: 'f2', name: 'version_summary.md', type: 'md', category: 'b' },
       { id: 'f3', name: 'change_log.md', type: 'md', category: 'b' },
       { id: 'f4', name: 'question_log.md', type: 'md', category: 'b' },
       { id: 'f5', name: 'confirmation_log.md', type: 'md', category: 'b' },

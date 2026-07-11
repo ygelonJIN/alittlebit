@@ -1,34 +1,34 @@
 # Version Summary
 
 ## 基本信息
-- 版本号: v0
-- 状态: confirmed
-- 创建时间: 2026-07-09 16:09
-- 当前阶段: 结构/生成
-- 当前轮次: 2
+- 版本号：{version_id}
+- 状态：{status}
+- 创建时间：{created_at}
+- 当前阶段：{stage}
+- 当前轮次：{round}
 
 ## 当前理解
-- 当前目标: 我想做一个电子密码库类似于，因为我经常忘记我的账号和密码，所以我想把所有都存储进去，怎么打开这个密码库，我想要设定一个机制就是，比如我写入了10个账号密码，我可
-- 当前结论: 已完成 2 轮对话，版本内容已生成
+- 当前目标：{current_goal}
+- 当前结论：{current_conclusion}
 
 ## 事项分层
-- 已确认事项: (见确认记录)
-- 未确认事项: 待补充
-- 系统推断项: 无
-- 暂存项: 无
-- 已冻结项: 无
+- 已确认：{confirmed_items}
+- 未确认：{unconfirmed_items}
+- 系统推断：{inferred_items}
+- 暂存：{temporary_items}
+- 已冻结：{frozen_items}
 
 ## 文件指向
-- 主文件: b/body.md
-- 差异文件: c/diff_v0_to_v0.md
-- 日志文件: b/change_log.md
-- 锁定摘要: b/lock_summary.md
-- 归档位置: 尚未归档
+- 主文件：{main_file}
+- 差异文件：{diff_file}
+- 日志文件：{log_files}
+- 锁定摘要：{lock_summary}
+- 归档位置：{archive_path}
 
 ## 状态判断
-- 是否锁定: 否
-- 是否归档: 否
-- 是否允许继续推进: 是
+- 是否锁定：{is_locked}
+- 是否归档：{is_archived}
+- 是否允许继续推进：{can_advance}
 
----
-模板类型: 版本摘要模板 (11.3)
+## 模板类型
+- 版本摘要模板（11.3）

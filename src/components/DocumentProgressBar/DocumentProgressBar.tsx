@@ -2,14 +2,6 @@ import { useMemo } from 'react';
 import { useStore, calcDocumentProgress, type DocumentProgress } from '../../store';
 import './DocumentProgressBar.css';
 
-function getProgressColor(light: string): string {
-  switch (light) {
-    case 'green': return '#28c840';
-    case 'yellow': return '#febc2e';
-    default: return '#555';
-  }
-}
-
 export default function DocumentProgressBar() {
   const lines = useStore((s) => s.lines);
   const files = useStore((s) => s.files);
@@ -27,18 +19,16 @@ export default function DocumentProgressBar() {
     return calcDocumentProgress(content, file.name, !!file.lockedLight, file.category);
   }, [lines, files, activeFileId]);
 
-  if (!progress || !progress.label) return null;
-
-  const color = getProgressColor(progress.light);
+  if (!progress || (!progress.label && !progress.reason)) return null;
 
   return (
     <div className="doc-progress-bar">
-      <div className="progress-track-h">
-        <div className="progress-fill-h" style={{ width: `${progress.percent}%`, background: color }} />
+      <div className="progress-track">
+        <div className="progress-fill" style={{ width: `${progress.percent}%` }} />
       </div>
-      <span className="progress-percent-h" style={{ color }}>{progress.percent}%</span>
-      <span className="progress-label-h" style={{ color }}>{progress.label}</span>
-      <span className="progress-reason-h">{progress.reason}</span>
+      <span className="progress-pct">{progress.percent}%</span>
+      {progress.label && <span className="progress-label">{progress.label}</span>}
+      {progress.reason && <span className="progress-reason">{progress.label ? '· ' : ''}{progress.reason}</span>}
     </div>
   );
 }

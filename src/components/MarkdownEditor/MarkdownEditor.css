@@ -68,6 +68,17 @@
 }
 .ver-tab-inline.locked { opacity: 0.7; }
 .ver-tab-name { font-weight: 600; }
+.ver-name-input {
+  background: rgba(255,255,255,0.06);
+  border: none;
+  border-bottom: 2px solid var(--accent);
+  color: #f8faff;
+  font-size: inherit;
+  font-weight: 600;
+  padding: 2px 4px;
+  outline: none;
+  min-width: 60px;
+}
 
 .ver-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; flex-shrink: 0; }
 

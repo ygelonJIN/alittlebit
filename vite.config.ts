@@ -132,7 +132,6 @@ function filesPlugin(): Plugin {
             const archiveDir = path.join(OUTPUT_DIR, 'archive');
             for (const d of [verDir, aDir, bDir, cDir, diffsDir, logsDir, currentDir, archiveDir]) fs.mkdirSync(d, { recursive: true });
 
-            const bodyText = lines.map((l: any) => l.text).join('\n');
             const msgs = messages || [];
             const userMsgs = msgs.filter((m: any) => m.role === 'user');
             const aiMsgs = msgs.filter((m: any) => m.role === 'assistant');
@@ -246,7 +245,7 @@ function filesPlugin(): Plugin {
               '- 已冻结项: 无',
               '',
               '## 文件指向',
-              '- 主文件: b/body.md',
+              '- 主文件: b/version_summary.md',
               '- 差异文件: c/' + (prevVersion ? 'diff_' + prevVersion + '_to_' + versionId + '.md' : 'diff_v0_to_' + versionId + '.md'),
               '- 日志文件: b/change_log.md',
               '- 锁定摘要: b/lock_summary.md',
@@ -285,48 +284,23 @@ function filesPlugin(): Plugin {
               '- 是否影响主入口索引: 是 (已更新)',
               '',
               '## 同步结果',
-              '- 已更新文件: version_summary.md, change_log.md, question_log.md, confirmation_log.md, body.md, ' + (prevVersion ? 'diff_' + prevVersion + '_to_' + versionId + '.md' : 'diff_v0_to_' + versionId + '.md') + ', current/latest_plan.md',
+              '- 已更新文件: version_summary.md, change_log.md, question_log.md, confirmation_log.md, ' + (prevVersion ? 'diff_' + prevVersion + '_to_' + versionId + '.md' : 'diff_v0_to_' + versionId + '.md') + ', current/latest_plan.md',
               '- 未完成项: 无',
               '',
               '---',
               '模板类型: 变更日志模板 (11.4)',
             ].join('\n');
 
-            // ── 锁定摘要模板 (stub, filled on locklock) ──
+            // ── 锁定摘要 (append-only, filled on locklock) ──
             const freezeStub = [
               '# Freeze Summary',
               '',
-              '## 锁定信息',
-              '- 锁定版本号: ' + versionId,
-              '- 锁定时间: 尚未锁定',
-              '- 锁定原因: 尚未锁定',
-              '',
-              '## 锁定前检查',
-              '- 主文件是否完成: 是',
-              '- 摘要是否完成: 是',
-              '- 日志是否完成: 是',
-              '- 差异文件是否完成: 是',
-              '- 索引是否完成: 是',
-              '',
-              '## 确认结果',
-              '- 用户确认项: 待锁定时确认',
-              '- 系统推断项处理结果: 待处理',
-              '- 暂存项处理结果: 待处理',
-              '',
-              '## 归档信息',
-              '- 归档位置: 待归档',
-              '- 归档索引: 待生成',
-              '- 是否允许派生新版本: 是',
-              '',
-              '---',
-              '模板类型: 锁定摘要模板 (11.5)',
+              '## 模板类型',
+              '- 锁定摘要模板（11.5）',
             ].join('\n');
 
-            // Write in spec order: body → summary → log → index → diff
+            // Write in spec order: summary → log → index → diff
             const files: string[] = [];
-
-            fs.writeFileSync(path.join(bDir, 'body.md'), bodyText);
-            files.push('b/body.md');
 
             fs.writeFileSync(path.join(bDir, 'version_summary.md'), summary);
             files.push('b/version_summary.md');
@@ -353,7 +327,7 @@ function filesPlugin(): Plugin {
               '- 来源版本：' + (prevVersion ?? 'v0'),
               '- 目标版本：' + versionId,
               '- 变更对象：b/ 目录下全部治理文档 + current/latest_plan.md + diffs/',
-              '- 关联文档：b/body.md / b/version_summary / b/change_log / b/question_log / b/confirmation_log / b/lock_summary',
+              '- 关联文档：b/version_summary / b/change_log / b/question_log / b/confirmation_log / b/lock_summary',
               '- 生成时间：' + now,
               '- 状态：confirmed',
               '',
@@ -372,7 +346,6 @@ function filesPlugin(): Plugin {
               '- 变更对象：b/ 目录',
               '- 变更前：无',
               '- 变更后：新建版本目录 versions/' + versionId + '/b/',
-              '- 新建文件：body.md',
               '- 新建文件：version_summary.md',
               '- 新建文件：change_log.md',
               '- 新建文件：question_log.md',
@@ -396,7 +369,7 @@ function filesPlugin(): Plugin {
               '',
               '## 5. 影响分析',
               '### 5.1 对正文的影响',
-              '- 正文已生成至 b/body.md',
+              '- 正文已生成至 b/version_summary.md',
               '',
               '### 5.2 对摘要的影响',
               '- 版本摘要已生成至 b/version_summary.md，指向当前版本',
@@ -481,52 +454,38 @@ function filesPlugin(): Plugin {
         req.on('data', (chunk) => (body += chunk));
         req.on('end', () => {
           try {
-            const { versionId } = JSON.parse(body);
+            const { versionId, action } = JSON.parse(body);
             const verDir = path.join(OUTPUT_DIR, 'versions', versionId);
             const bDir = path.join(verDir, 'b');
-            // Check prerequisites in b/
-            const required = ['version_summary.md', 'body.md', 'change_log.md', 'question_log.md', 'confirmation_log.md'];
+            const lockPath = path.join(bDir, 'lock_summary.md');
+            const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
+
+            if (action === 'unlock') {
+              const entry = '\n## 解锁: ' + versionId + ' @ ' + now + '\n- 解锁原因: 用户取消锁定\n';
+              const current = fs.existsSync(lockPath) ? fs.readFileSync(lockPath, 'utf-8') : '';
+              fs.writeFileSync(lockPath, current + entry);
+              res.setHeader('Content-Type', 'application/json');
+              res.end(JSON.stringify({ ok: true }));
+              return;
+            }
+
+            // action === 'lock': check prerequisites
+            const required = ['version_summary.md', 'change_log.md', 'question_log.md', 'confirmation_log.md'];
             const missing = required.filter((f) => !fs.existsSync(path.join(bDir, f)));
             if (missing.length > 0) {
               res.statusCode = 400;
               res.end(JSON.stringify({ ok: false, missing, error: '硬门槛未满足：缺少文件 ' + missing.join(', ') }));
               return;
             }
-            const now = new Date().toISOString().slice(0, 16).replace('T', ' ');
-            // ── 11.5 锁定摘要模板 ──
-            const freezeFinal = [
-              '# Freeze Summary',
-              '',
-              '## 锁定信息',
-              '- 锁定版本号: ' + versionId,
-              '- 锁定时间: ' + now,
-              '- 锁定原因: 用户确认锁定',
-              '',
-              '## 锁定前检查',
-              '- 主文件是否完成: ✓',
-              '- 摘要是否完成: ✓',
-              '- 日志是否完成: ✓',
-              '- 差异文件是否完成: ✓',
-              '- 索引是否完成: ✓',
-              '',
-              '## 确认结果',
-              '- 用户确认项: 用户触发 locklock 锁定',
-              '- 系统推断项处理结果: 已处理',
-              '- 暂存项处理结果: 已处理',
-              '',
-              '## 归档信息',
-              '- 归档位置: archive/' + versionId + '/',
-              '- 归档索引: current/latest_plan.md',
-              '- 是否允许派生新版本: 是',
-              '',
-              '---',
-              '模板类型: 锁定摘要模板 (11.5)',
-            ].join('\n');
-            fs.writeFileSync(path.join(bDir, 'lock_summary.md'), freezeFinal);
-            // Copy entire version dir (a/ and b/ subdirs) to archive
+
+            // Append lock record
+            const entry = '\n## 锁定: ' + versionId + ' @ ' + now + '\n- 锁定前检查: 全部通过\n- 锁定原因: 用户确认锁定\n';
+            const current = fs.existsSync(lockPath) ? fs.readFileSync(lockPath, 'utf-8') : '';
+            fs.writeFileSync(lockPath, current + entry);
+
+            // Archive
             const archiveDir = path.join(OUTPUT_DIR, 'archive', versionId);
             fs.mkdirSync(archiveDir, { recursive: true });
-            // Recursively copy version dir contents
             function copyDir(src: string, dst: string) {
               fs.mkdirSync(dst, { recursive: true });
               const items = fs.readdirSync(src, { withFileTypes: true });
@@ -561,6 +520,32 @@ function filesPlugin(): Plugin {
             const safePath = path.resolve(PROJECT_ROOT, path.normalize(filePath));
             if (!safePath.startsWith(PROJECT_ROOT)) { res.statusCode = 403; res.end(JSON.stringify({ error: 'forbidden' })); return; }
             fs.writeFileSync(safePath, content);
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ ok: true }));
+          } catch (e: any) {
+            res.statusCode = 500;
+            res.end(JSON.stringify({ error: e.message }));
+          }
+        });
+      });
+
+      // ── /api/files/rename ──
+      server.middlewares.use('/api/files/rename', (req, res) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        if (req.method === 'OPTIONS') { res.statusCode = 204; res.end(); return; }
+        if (req.method !== 'POST') { res.statusCode = 405; res.end(); return; }
+        let body = '';
+        req.on('data', (chunk) => (body += chunk));
+        req.on('end', () => {
+          try {
+            const { oldPath, newPath } = JSON.parse(body);
+            const safeOld = path.resolve(PROJECT_ROOT, path.normalize(oldPath));
+            const safeNew = path.resolve(PROJECT_ROOT, path.normalize(newPath));
+            if (!safeOld.startsWith(PROJECT_ROOT) || !safeNew.startsWith(PROJECT_ROOT)) { res.statusCode = 403; res.end(JSON.stringify({ error: 'forbidden' })); return; }
+            if (!fs.existsSync(safeOld)) { res.statusCode = 404; res.end(JSON.stringify({ error: 'not found' })); return; }
+            fs.renameSync(safeOld, safeNew);
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ ok: true }));
           } catch (e: any) {

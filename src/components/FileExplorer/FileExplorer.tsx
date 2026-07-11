@@ -13,12 +13,15 @@ export default function FileExplorer({ files }: Props) {
   const createFile = useStore((s) => s.createFile);
   const resetFile = useStore((s) => s.resetFile);
   const deleteFile = useStore((s) => s.deleteFile);
+  const renameFile = useStore((s) => s.renameFile);
   const confirmAndExec = useStore((s) => s.confirmAndExec);
   const pendingAction = useStore((s) => s.pendingAction);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set(['group:a', 'group:b']));
+  const [editingFileId, setEditingFileId] = useState<string | null>(null);
+  const [editFileName, setEditFileName] = useState('');
 
   const toggleLight = useStore((s) => s.toggleLight);
 
@@ -41,6 +44,12 @@ export default function FileExplorer({ files }: Props) {
     createFile(name);
     setAdding(false);
     setNewName('');
+  };
+
+  const handleFileRename = (id: string) => {
+    const name = editFileName.trim();
+    if (name) renameFile(id, name);
+    setEditingFileId(null);
   };
 
   const groups = files.filter((f) => f.type === 'folder' && f.children !== undefined);
@@ -95,6 +104,7 @@ export default function FileExplorer({ files }: Props) {
                 const showLight = group.category === 'a' || group.category === 'x';
                 const confirmingReset = pendingAction?.id === f.id && pendingAction?.action === 'reset';
                 const confirmingDelete = pendingAction?.id === f.id && pendingAction?.action === 'delete';
+                const canRename = f.createdByUser || group.category === 'x';
                 return (
                 <div
                   key={f.id}
@@ -108,7 +118,22 @@ export default function FileExplorer({ files }: Props) {
                       title={f.light === 'green' ? '绿灯：已锁定' : f.light === 'yellow' ? '黄灯：系统建议完成，点击确认' : '灰灯：待确认'}
                     />
                   ) : null}
-                  <span className="file-name">{f.name}</span>
+                  {editingFileId === f.id ? (
+                    <input
+                      className="file-name-input"
+                      value={editFileName}
+                      onChange={(e) => setEditFileName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleFileRename(f.id); if (e.key === 'Escape') setEditingFileId(null); }}
+                      onBlur={() => handleFileRename(f.id)}
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  ) : (
+                    <span
+                      className="file-name"
+                      onDoubleClick={canRename ? (e) => { e.stopPropagation(); setEditingFileId(f.id); setEditFileName(f.name); } : undefined}
+                    >{f.name}</span>
+                  )}
                   {f.hasTemplate ? (
                     <button
                       className={`file-action-btn reset${confirmingReset ? ' confirming' : ''}`}
@@ -138,7 +163,19 @@ export default function FileExplorer({ files }: Props) {
             className={`file-item${f.id === activeFileId ? ' active' : ''}`}
             onClick={() => selectFile(f.id)}
           >
-            <span className="file-name">{f.name}</span>
+            {editingFileId === f.id ? (
+              <input
+                className="file-name-input"
+                value={editFileName}
+                onChange={(e) => setEditFileName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleFileRename(f.id); if (e.key === 'Escape') setEditingFileId(null); }}
+                onBlur={() => handleFileRename(f.id)}
+                autoFocus
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span className="file-name" onDoubleClick={(e) => { e.stopPropagation(); setEditingFileId(f.id); setEditFileName(f.name); }}>{f.name}</span>
+            )}
           </div>
         ))}
       </div>

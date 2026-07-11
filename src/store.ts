@@ -49,6 +49,7 @@ export interface AppState {
   setLight: (fileId: string, light: 'gray' | 'green' | 'yellow') => void;
   resetFile: (fileId: string) => Promise<void>;
   deleteFile: (fileId: string) => Promise<void>;
+  renameFile: (fileId: string, newName: string) => Promise<void>;
   deleteVersion: (versionId: string) => Promise<void>;
   pendingAction: { id: string; action: 'reset' | 'delete' | 'deleteVer' } | null;
   setPendingAction: (pa: { id: string; action: 'reset' | 'delete' | 'deleteVer' } | null) => void;
@@ -105,12 +106,11 @@ interface QuestionValidation {
 }
 
 let msgCounter = 10;
-let verCounter = 10;
 const now = () => new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 
 function nextVersionName(title: string): string {
-  const m = title.match(/^(.*)-(\d+)\.0$/);
-  if (m) return m[1] + '-' + (parseInt(m[2]) + 1) + '.0';
+  const m = title.match(/^v(\d+)/);
+  if (m) return 'v' + (parseInt(m[1]) + 1) + '.0';
   return title + '-2.0';
 }
 
@@ -137,7 +137,7 @@ const SYSTEM_PROMPT = [
   '==================================================',
   '你的最终目标是把一个模糊项目想法，持续收敛为一条完整的软件工程文档链，并支持版本化管理。',
   'A 类核心产出文档包括：PRD / Features / Rules / RFC / Implementation / Code Review / Testing Strategy / Change Management',
-  'B 类治理产出文档包括：version_summary.md / question_log.md / confirmation_log.md / change_log.md / freeze_summary.md / 差异文件 / 主入口索引',
+  'B 类治理产出文档包括：version_summary.md / question_log.md / confirmation_log.md / change_log.md / lock_summary.md / 差异文件 / 主入口索引',
   '你必须让 A 类文档和 B 类文档形成闭环。',
   '',
   '==================================================',
@@ -150,7 +150,7 @@ const SYSTEM_PROMPT = [
   '三、文档链顺序',
   '==================================================',
   '必须按以下顺序推进：PRD → Features → Rules → RFC → Implementation → Code Review → Testing Strategy → Change Management',
-  '版本治理文档应同步生成或更新：version_summary / question_log / confirmation_log / change_log / freeze_summary / 差异文件 / 主入口索引',
+  '版本治理文档应同步生成或更新：version_summary / question_log / confirmation_log / change_log / lock_summary / 差异文件 / 主入口索引',
   '你不得跳过前置文档直接生成后置文档。',
   '',
   '==================================================',
@@ -335,7 +335,6 @@ const SYSTEM_PROMPT = [
 
 const STATIC_SYSTEM = SYSTEM_PROMPT;
 const B_TEMPLATE_FILES = new Set([
-  'body.md',
   'version_summary.md',
   'change_log.md',
   'question_log.md',
@@ -359,7 +358,7 @@ function buildFileTree(data: any[]): FileItem[] {
     if (f.name.startsWith('b/')) {
       const shortName = f.name.slice(2);
       if (B_TEMPLATE_FILES.has(shortName)) {
-        bChildren.push({ id: f.name, name: shortName, type: f.type as any, category: 'b' });
+        bChildren.push({ id: f.name, name: shortName, type: f.type as any, category: 'b', hasTemplate: true });
       } else {
         xChildren.push({ id: f.name, name: shortName, type: f.type as any, category: 'x', createdByUser: true, light: 'gray' });
       }
@@ -908,10 +907,10 @@ export function calcDocumentProgress(content: string, docName: string, locked: b
   const rule = getDocumentRule(docName);
 
   if (info.isPureTemplate) {
-    return { percent: 0, light: 'gray', label: '纯模板', missingSections: info.missingSections, hasPlaceholder: true, reason: '纯模板，无实质内容' };
+    return { percent: 0, light: 'gray', label: '纯模板', missingSections: info.missingSections, hasPlaceholder: true, reason: '无实质内容' };
   }
   if (info.completedCount === 0 && info.meaningfulTextLength < 60) {
-    return { percent: 0, light: 'gray', label: '纯模板', missingSections: info.missingSections, hasPlaceholder: true, reason: '纯模板，无实质内容' };
+    return { percent: 0, light: 'gray', label: '纯模板', missingSections: info.missingSections, hasPlaceholder: true, reason: '无实质内容' };
   }
 
   const reqCount = info.required.length || 1;
@@ -1004,6 +1003,14 @@ async function appendToBFile(fileName: string, entry: string, verId: string) {
       body: JSON.stringify({ filePath: bPath, content: next }),
     });
   } catch (e) { console.warn('[syncB] failed:', fileName, e); }
+}
+
+async function appendResetMarkers(fileId: string, verId: string) {
+  const now = new Date().toLocaleString('zh-CN');
+  const marker = '## ' + now + String.fromCharCode(10) + '- 目标文件: ' + fileId + String.fromCharCode(10) + '- 动作: reset' + String.fromCharCode(10);
+  for (const logFile of ['change_log.md', 'question_log.md', 'confirmation_log.md']) {
+    await appendToBFile(logFile, marker, verId);
+  }
 }
 
 async function syncBAfterWrite(targetFile: string, content: string, questions: string[], confirmations: string[], verId: string) {
@@ -1662,6 +1669,14 @@ export const useStore = create<AppState>((set, get) => ({
     if (!v) return;
     // Toggle unlock
     if (v.locked) {
+      // Unlock: append record to lock_summary via API
+      try {
+        await fetch('/api/files/locklock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ versionId: id, action: 'unlock' }),
+        });
+      } catch { /* non-critical */ }
       set({
         versions: versions.map((x) => x.id === id ? { ...x, locked: false, stage: 'confirmed' } as any : x),
         isReadOnly: get().activeVersionId === id ? false : get().isReadOnly,
@@ -1674,7 +1689,7 @@ export const useStore = create<AppState>((set, get) => ({
       const res = await fetch('/api/files/locklock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ versionId: id }),
+        body: JSON.stringify({ versionId: id, action: 'lock' }),
       });
       const data = await res.json();
       if (!data.ok) {
@@ -1695,16 +1710,34 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  renameVersion: (id, name) => set((s) => ({
-    versions: s.versions.map((v) => (v.id === id ? { ...v, title: name } : v)),
-  })),
+  renameVersion: async (id, name) => {
+    const v = get().versions.find((x: any) => x.id === id) as any;
+    if (!v || v.title === name) return;
+    const oldTitle = v.title;
+    set((s) => ({ versions: s.versions.map((x: any) => (x.id === id ? { ...x, title: name } : x)) }));
+    // Update B file references
+    try {
+      const verId = get().activeVersionId;
+      for (const file of ['version_summary.md', 'lock_summary.md']) {
+        const bPath = 'letsgo/versions/' + verId + '/b/' + file;
+        const r = await fetch('/api/files?path=' + encodeURIComponent(bPath));
+        const data = await r.json();
+        if (!data.lines) continue;
+        const content = data.lines.map((l: any) => l.text).join(String.fromCharCode(10));
+        const updated = content.split(oldTitle).join(name);
+        if (updated !== content) {
+          await fetch('/api/files/write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filePath: bPath, content: updated }) });
+        }
+      }
+    } catch (e) { /* non-critical */ }
+  },
 
   createNextVersion: async (id) => {
     const versions = get().versions;
     const parent = versions.find((v) => v.id === id) as any;
     if (!parent) return;
-    const newId = 'v' + (verCounter++);
-    const newVersion: any = { id: newId, title: nextVersionName(parent.title), locked: false, active: false, stage: 'draft' };
+    const newId = nextVersionName(parent.title);
+    const newVersion: any = { id: newId, title: newId, locked: false, active: false, stage: 'draft' };
     const idx = versions.findIndex((v) => v.id === id);
     const newVersions = [...versions.slice(0, idx + 1), newVersion, ...versions.slice(idx + 1)] as any;
     versionContent[newId] = (versionContent[id] ?? []).map((l) => ({ ...l, active: false }));
@@ -1849,26 +1882,50 @@ export const useStore = create<AppState>((set, get) => ({
     for (const g of files) {
       if (g.children) { file = g.children.find(c => c.id === fileId); if (file) break; }
     }
-    if (!file || !file.hasTemplate) { console.log('[resetFile] 文件不存在或没有模板'); return; }
+    if (!file) { console.log('[resetFile] 文件不存在'); return; }
+    const cat = file.category;
+    if (cat !== 'a' && cat !== 'b') { console.log('[resetFile] 不支持的文件类型'); return; }
     const verId = get().activeVersionId;
     const relPath = 'letsgo/versions/' + verId + '/' + fileId;
+
+    let content: string;
+    if (cat === 'b') {
+      if (file.name === 'version_summary.md' || file.name === 'lock_summary.md') {
+        const tplPath = 'letsgo/templates/b/' + file.name;
+        try {
+          const r = await fetch('/api/files?path=' + encodeURIComponent(tplPath));
+          const data = await r.json();
+          if (!data.lines) { console.log('[resetFile] 模板不存在'); return; }
+          content = data.lines.map((l: any) => l.text).join(String.fromCharCode(10));
+        } catch (e) { console.log('[resetFile] 读取模板失败', e); alert('重置失败'); return; }
+      } else {
+        const name = file.name.replace(/\.md$/, '');
+        const title = name.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+        content = '# ' + title + String.fromCharCode(10, 10);
+      }
+    } else {
+      const tplPath = 'letsgo/templates/' + fileId;
+      try {
+        const r = await fetch('/api/files?path=' + encodeURIComponent(tplPath));
+        const data = await r.json();
+        if (!data.lines) { console.log('[resetFile] 模板不存在'); return; }
+        content = data.lines.map((l: any) => l.text).join(String.fromCharCode(10));
+      } catch (e) { console.log('[resetFile] 读取模板失败', e); alert('重置失败'); return; }
+    }
+    console.log('[resetFile] 内容长度:', content.length);
+
     try {
-      // Read template from immutable templates/ directory
-      const tplName = fileId.includes('/') ? fileId : 'a/' + fileId;
-      const tplPath = 'letsgo/templates/' + tplName;
-      console.log('[resetFile] 读取模板:', tplPath);
-      const r = await fetch('/api/files?path=' + encodeURIComponent(tplPath));
-      const data = await r.json();
-      if (!data.lines) { console.log('[resetFile] 模板不存在'); return; }
-      const content = data.lines.map((l: any) => l.text).join('\n');
-      console.log('[resetFile] 模板内容长度:', content.length);
       await fetch('/api/files/write', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filePath: relPath, content }),
       });
-      console.log('[resetFile] 写入完成, 刷新编辑器');
+      console.log('[resetFile] 写入完成');
       get().selectFile(fileId);
+
+      if (cat === 'a') {
+        appendResetMarkers(fileId, verId);
+      }
     } catch (e) { console.log('[resetFile] 失败', e); alert('重置失败'); }
   },
 
@@ -1907,6 +1964,36 @@ export const useStore = create<AppState>((set, get) => ({
       set({ files: updated, activeFileId: nextId });
       if (nextId && nextId !== fileId) get().selectFile(nextId);
     } catch { alert('删除文件失败'); }
+  },
+
+  renameFile: async (fileId, newName) => {
+    if (!newName.endsWith('.md')) newName += '.md';
+    const files = get().files;
+    let file: FileItem | undefined;
+    for (const g of files) {
+      if (g.children) { file = g.children.find(c => c.id === fileId); if (file) break; }
+    }
+    if (!file || file.name === newName) return;
+    const verId = get().activeVersionId;
+    const oldPath = 'letsgo/versions/' + verId + '/' + fileId;
+    const newDir = fileId.substring(0, fileId.lastIndexOf('/') + 1);
+    const newId = newDir + newName;
+    const newPath = 'letsgo/versions/' + verId + '/' + newId;
+    try {
+      const r = await fetch('/api/files/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ oldPath, newPath }),
+      });
+      if (!r.ok) { alert('重命名失败'); return; }
+      // Update file tree
+      const updated = files.map((g) => {
+        if (!g.children) return g;
+        return { ...g, children: g.children.map(c => c.id === fileId ? { ...c, id: newId, name: newName } : c) };
+      });
+      const isActive = get().activeFileId === fileId;
+      set({ files: updated, activeFileId: isActive ? newId : get().activeFileId });
+    } catch { alert('重命名失败'); }
   },
 
   deleteVersion: async (versionId) => {

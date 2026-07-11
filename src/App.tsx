@@ -21,6 +21,7 @@ export default function App() {
   const locklockVersion = useStore((s) => s.locklockVersion);
   const createNextVersion = useStore((s) => s.createNextVersion);
   const deleteVersion = useStore((s) => s.deleteVersion);
+  const renameVersion = useStore((s) => s.renameVersion);
   const confirmAndExec = useStore((s) => s.confirmAndExec);
   const pendingAction = useStore((s) => s.pendingAction);
   const apiKey = useStore((s) => s.apiKey);
@@ -31,6 +32,8 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showQDropdown, setShowQDropdown] = useState(false);
   const [cursorCol, setCursorCol] = useState(1);
+  const [editingVerId, setEditingVerId] = useState<string | null>(null);
+  const [editVerName, setEditVerName] = useState('');
 
   const [verStart, setVerStart] = useState(0);
   const [verCount, setVerCount] = useState(versions.length);
@@ -78,6 +81,12 @@ export default function App() {
     }
   }, [dragging, leftW, rightW]);
 
+  const handleVerRename = (id: string) => {
+    const name = editVerName.trim();
+    if (name) renameVersion(id, name);
+    setEditingVerId(null);
+  };
+
   const visibleVersions = versions.slice(verStart, verStart + verCount);
   const showArrows = versions.length > verCount;
   const maxVerStart = Math.max(0, versions.length - verCount);
@@ -111,7 +120,7 @@ export default function App() {
               )}
             </div>
             <button className="titlebar-settings" onClick={() => setShowSettings(true)}>设置</button>
-            <span className="titlebar-status">{isLoading ? 'Thinking...' : apiKey ? 'Ready' : 'No API Key'}</span>
+            <span className={`titlebar-status ${isLoading ? 'thinking' : apiKey ? 'ready' : 'no-key'}`}>{isLoading ? 'Thinking...' : apiKey ? 'Ready' : 'No API Key'}</span>
           </div>
         </div>
         <div className="layout">
@@ -124,7 +133,21 @@ export default function App() {
                 return (
                   <div key={v.id} className={`ver-tab-inline${isActive ? ' active' : ''}${v.locked ? ' locked' : ''}`} onClick={() => selectVersion(v.id)}>
                     <span className={`ver-lock-pill${v.locked ? ' locked' : ''}`} onClick={(e) => { e.stopPropagation(); locklockVersion(v.id); }} title={v.locked ? '解锁' : '锁定'} />
-                    <span className="ver-tab-name">{v.title}</span>
+                    {editingVerId === v.id ? (
+                      <input
+                        className="ver-name-input"
+                        value={editVerName}
+                        onChange={(e) => setEditVerName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleVerRename(v.id); if (e.key === 'Escape') setEditingVerId(null); }}
+                        onBlur={() => handleVerRename(v.id)}
+                        autoFocus
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    ) : (
+                      <span className="ver-tab-name" onDoubleClick={(e) => { e.stopPropagation(); setEditingVerId(v.id); setEditVerName(v.title); }}>
+                        {v.title}
+                      </span>
+                    )}
                     <span className="ver-actions">
                       <button className="ver-delete-btn" onClick={(e) => { e.stopPropagation(); confirmAndExec(v.id, 'deleteVer'); }} style={{ visibility: isActive ? 'visible' : 'hidden' }}>{confirmingDelVer ? '✓' : 'delete'}</button>
                       <button className="ver-next-btn" onClick={(e) => { e.stopPropagation(); createNextVersion(v.id); }} style={{ visibility: isActive ? 'visible' : 'hidden' }}>next</button>
