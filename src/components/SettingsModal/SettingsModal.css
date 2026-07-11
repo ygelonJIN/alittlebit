@@ -2,6 +2,7 @@
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(10px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -63,7 +64,7 @@
   width: 100%;
   border: 1px solid var(--line);
   background: var(--bg-overlay);
-  color: #f8faff;
+  color: var(--text);
   font-size: 13px;
   padding: 8px 10px;
   font-family: var(--mono);
@@ -71,7 +72,7 @@
 }
 
 .settings-input:focus {
-  border-color: var(--accent);
+  border-color: var(--accent-solid);
 }
 
 .settings-actions {
@@ -95,16 +96,42 @@
 
 .settings-btn:hover {
   background: var(--accent-soft);
-  color: #f8faff;
-  border-left-color: var(--accent);
+  color: var(--text);
+  border-left-color: var(--accent-solid);
 }
 
-.settings-btn.primary {
-  color: var(--accent);
-  border-left-color: var(--accent);
+.settings-seg {
+  border: none;
+  border-left: 2px solid transparent;
+  padding: 6px 14px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.settings-seg:hover {
+  background: var(--accent-soft);
+  color: var(--text);
+  border-left-color: var(--accent-solid);
+}
+.settings-seg.active {
+  color: var(--accent-solid);
+  border-left-color: var(--accent-solid);
 }
 
-.settings-btn.primary:hover {
-  background: var(--accent);
-  color: #f8faff;
+.settings-color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-color-picker {
+  width: 36px;
+  height: 36px;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  background: transparent;
 }

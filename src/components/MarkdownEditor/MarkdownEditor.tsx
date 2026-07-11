@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect } from 'react';
+import { useRef, useCallback, useEffect, useState } from 'react';
 import { useStore } from '../../store';
 import './MarkdownEditor.css';
 
@@ -7,10 +7,64 @@ interface Props {
   onCursorMove?: (line: number, col: number) => void;
 }
 
+function renderMd(text: string): JSX.Element[] {
+  const lines = text.split('\n');
+  const els: JSX.Element[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      els.push(<div key={i} className="md-blank">&nbsp;</div>);
+      i++;
+      continue;
+    }
+
+    if (trimmed.startsWith('### ')) {
+      els.push(<h3 key={i} className="md-h3">{trimmed.slice(4)}</h3>);
+      i++;
+      continue;
+    }
+    if (trimmed.startsWith('## ')) {
+      els.push(<h2 key={i} className="md-h2">{trimmed.slice(3)}</h2>);
+      i++;
+      continue;
+    }
+    if (trimmed.startsWith('# ')) {
+      els.push(<h1 key={i} className="md-h1">{trimmed.slice(2)}</h1>);
+      i++;
+      continue;
+    }
+
+    if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      els.push(<div key={i} className="md-li">• {trimmed.slice(2)}</div>);
+      i++;
+      continue;
+    }
+
+    // Bold
+    const boldParts = trimmed.split(/(\*\*[^*]+\*\*)/g);
+    const children = boldParts.map((part, j) => {
+      if (part.startsWith('**') && part.endsWith('**')) {
+        return <strong key={j}>{part.slice(2, -2)}</strong>;
+      }
+      return part;
+    });
+
+    els.push(<p key={i} className="md-p">{children}</p>);
+    i++;
+  }
+
+  return els;
+}
+
 export default function MarkdownEditor({ isReadOnly, onCursorMove }: Props) {
   const lines = useStore((s) => s.lines);
   const selectLine = useStore((s) => s.selectLine);
   const setEditorLines = useStore((s) => s.setEditorLines);
+  const [mode, setMode] = useState<'edit' | 'preview'>('edit');
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
@@ -57,26 +111,36 @@ export default function MarkdownEditor({ isReadOnly, onCursorMove }: Props) {
   const lineCount = lines.length;
   const gutterNumbers = Array.from({ length: Math.max(lineCount, 1) }, (_, i) => i + 1);
 
+  const previewContent = renderMd(text);
+
   return (
     <div className="editor">
       <div className="editor-body">
-        <div className="editor-view">
-          <div className="editor-gutter" ref={gutterRef}>
-            {gutterNumbers.map((n) => (
-              <div key={n} className="gutter-line">{n}</div>
-            ))}
-          </div>
-          <textarea
-            ref={textareaRef}
-            className="editor-textarea"
-            value={text}
-            onChange={handleChange}
-            onClick={handleClick}
-            onScroll={syncScroll}
-            disabled={isReadOnly}
-            spellCheck={false}
-          />
+        <div className="editor-mode-bar">
+          <button className={`editor-mode-btn${mode === 'edit' ? ' active' : ''}`} onClick={() => setMode('edit')}>Edit</button>
+          <button className={`editor-mode-btn${mode === 'preview' ? ' active' : ''}`} onClick={() => setMode('preview')}>Preview</button>
         </div>
+        {mode === 'edit' ? (
+          <div className="editor-view">
+            <div className="editor-gutter" ref={gutterRef}>
+              {gutterNumbers.map((n) => (
+                <div key={n} className="gutter-line">{n}</div>
+              ))}
+            </div>
+            <textarea
+              ref={textareaRef}
+              className="editor-textarea"
+              value={text}
+              onChange={handleChange}
+              onClick={handleClick}
+              onScroll={syncScroll}
+              disabled={isReadOnly}
+              spellCheck={false}
+            />
+          </div>
+        ) : (
+          <div className="editor-preview">{previewContent}</div>
+        )}
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import type { VersionItem } from './data/versions';
 import type { FileItem } from './data/files';
 import type { EditorLine } from './data/editorLines';
 import type { ChatMessage } from './data/messages';
+import { applyAccentColor, applyThemeMode, type ThemeMode } from './theme';
 
 const linesV1: EditorLine[] = [
   { id: 'v1L1', lineNumber: 1, text: '# AI 项目计划生成系统 v1.0', type: 'heading' },
@@ -17,6 +18,10 @@ export type VersionStage = 'draft' | 'collecting' | 'refining' | 'confirmed' | '
 
 export interface AppState {
   versions: VersionItem[];
+  theme: ThemeMode;
+  accent: string;
+  setTheme: (theme: ThemeMode) => void;
+  setAccent: (accent: string) => void;
   messages: ChatMessage[];
   activeVersionId: string;
   activeFileId: string;
@@ -907,10 +912,10 @@ export function calcDocumentProgress(content: string, docName: string, locked: b
   const rule = getDocumentRule(docName);
 
   if (info.isPureTemplate) {
-    return { percent: 0, light: 'gray', label: '纯模板', missingSections: info.missingSections, hasPlaceholder: true, reason: '无实质内容' };
+    return { percent: 0, light: 'gray', label: '', missingSections: info.missingSections, hasPlaceholder: true, reason: '纯模板，无实质内容' };
   }
   if (info.completedCount === 0 && info.meaningfulTextLength < 60) {
-    return { percent: 0, light: 'gray', label: '纯模板', missingSections: info.missingSections, hasPlaceholder: true, reason: '无实质内容' };
+    return { percent: 0, light: 'gray', label: '', missingSections: info.missingSections, hasPlaceholder: true, reason: '纯模板，无实质内容' };
   }
 
   const reqCount = info.required.length || 1;
@@ -938,14 +943,14 @@ export function calcDocumentProgress(content: string, docName: string, locked: b
   else { light = 'gray'; percent = Math.min(percent, 69); }
 
   const reason = light === 'green' ? '已完成' :
-    light === 'yellow' ? `还缺 ${info.missingSections.length} 个章节` :
+    light === 'yellow' ? '接近完成，还缺 ' + info.missingSections.length + ' 个章节' :
     info.completedCount === 0 ? '章节均未完成' :
-    info.hasPlaceholder ? '存在占位符' :
+    info.hasPlaceholder ? '进行中，存在占位符' :
     info.skeletonLineCount >= 5 ? '仍为模板骨架' :
     '内容过短或信息不足';
 
   return { percent, light,
-    label: light === 'green' ? '已完成' : light === 'yellow' ? '接近完成' : '进行中',
+    label: '',
     missingSections: info.missingSections, hasPlaceholder: info.hasPlaceholder, reason };
 }
 
@@ -1395,7 +1400,13 @@ async function ensureQuestionCount(
   return { finalReply: bestReply + failNote, genState, extraUsage };
 }
 
+applyThemeMode('dark');
+applyAccentColor('#7c3aed');
+applyThemeMode('dark');
+
 export const useStore = create<AppState>((set, get) => ({
+  theme: 'dark',
+  accent: '#7c3aed',
   versions: [
     { id: 'v0', title: 'v0', locked: false, active: true },
   ] as any,
@@ -1416,6 +1427,15 @@ export const useStore = create<AppState>((set, get) => ({
   questionCount: 3,
   pendingAction: null,
   questionGen: null,
+
+  setTheme: (theme) => {
+    applyThemeMode(theme);
+    set({ theme });
+  },
+
+  setAccent: (accent) => {
+    if (applyAccentColor(accent)) set({ accent });
+  },
 
   setPendingAction: (pa) => set({ pendingAction: pa }),
 

@@ -9,12 +9,12 @@
 .progress-track {
   flex: 1;
   height: 6px;
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--line);
 }
 
 .progress-fill {
   height: 100%;
-  background: var(--accent);
+  background: var(--accent-solid);
   transition: width 0.4s ease;
 }
 
@@ -22,7 +22,7 @@
   font-size: 13px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--accent);
+  color: var(--accent-solid);
   min-width: 34px;
   text-align: right;
   white-space: nowrap;
@@ -38,7 +38,7 @@
 .progress-reason {
   font-size: 13px;
   font-weight: 400;
-  color: var(--muted);
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

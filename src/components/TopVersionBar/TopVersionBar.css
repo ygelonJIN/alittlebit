@@ -2,7 +2,7 @@
   display: flex;
   height: var(--version-tabs-height);
   border-bottom: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.012);
+  background: var(--bg-hover);
 }
 
 .ver-tab {
@@ -15,23 +15,23 @@
   font-size: 11px;
   font-weight: 700;
   color: var(--text-muted);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0.005));
+  background: linear-gradient(180deg, var(--bg-hover), transparent);
   cursor: default;
   user-select: none;
   position: relative;
 }
 
 .ver-tab:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--accent-06);
 }
 
 .ver-tab.active {
   background: var(--accent-soft);
-  color: #f8faff;
+  color: var(--text);
 }
 
 .ver-tab.locked {
-  color: #f7c45f;
+  color: #f0b84d;
 }
 
 .ver-tab-actions,
@@ -54,9 +54,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line-light);
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-overlay);
   color: var(--text-muted);
   font-size: 9px;
   font-weight: 600;
@@ -65,8 +65,8 @@
 }
 
 .ver-tab-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #f8faff;
+  background: var(--accent-06);
+  color: var(--text);
 }
 
 .ver-tab-name {
@@ -76,8 +76,8 @@
 .ver-tab-rename {
   background: transparent;
   border: none;
-  border-bottom: 1px solid var(--accent);
-  color: #f8faff;
+  border-bottom: 1px solid var(--accent-solid);
+  color: var(--text);
   font-size: 11px;
   font-weight: 700;
   text-align: center;

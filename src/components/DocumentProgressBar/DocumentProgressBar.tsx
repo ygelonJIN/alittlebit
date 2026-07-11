@@ -27,8 +27,7 @@ export default function DocumentProgressBar() {
         <div className="progress-fill" style={{ width: `${progress.percent}%` }} />
       </div>
       <span className="progress-pct">{progress.percent}%</span>
-      {progress.label && <span className="progress-label">{progress.label}</span>}
-      {progress.reason && <span className="progress-reason">{progress.label ? '· ' : ''}{progress.reason}</span>}
+      {progress.reason && <span className="progress-label">{progress.reason}</span>}
     </div>
   );
 }

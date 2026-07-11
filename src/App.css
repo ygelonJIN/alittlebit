@@ -10,8 +10,8 @@
   margin: 0 auto;
   border: 1px solid var(--line);
   overflow: hidden;
-  background: rgba(6, 9, 18, 0.9);
-  box-shadow: 0 34px 110px rgba(0, 0, 0, 0.55);
+  background: var(--bg-panel);
+  box-shadow: 0 34px 110px color-mix(in srgb, var(--bg) 70%, black);
   backdrop-filter: blur(18px);
   display: grid;
   grid-template-rows: var(--titlebar-height) 1fr 22px;
@@ -30,7 +30,7 @@
 .dot { width: 12px; height: 12px; }
 .dot.red { background: #ff5f57; }
 .dot.yellow { background: #febc2e; }
-.dot.green { background: #28c840; }
+.dot.green { background: #1ea032; }
 .title { font-weight: 700; font-size: 13px; }
 
 .titlebar-settings {
@@ -45,7 +45,7 @@
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
-.titlebar-settings:hover { background: var(--accent-soft); border-left-color: var(--accent); color: #f8faff; }
+.titlebar-settings:hover { background: var(--accent-soft); border-left-color: var(--accent-solid); color: var(--text); }
 .titlebar-dropdown { position: relative; margin-left: 8px; }
 .titlebar-status {
   border: none;
@@ -58,12 +58,9 @@
   white-space: nowrap;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
-.titlebar-status.ready { color: #28c840; }
-.titlebar-status.ready:hover { background: rgba(40,200,64,0.06); border-left-color: #28c840; }
-.titlebar-status.no-key { color: #ff4d4f; }
-.titlebar-status.no-key:hover { background: rgba(255,77,79,0.06); border-left-color: #ff4d4f; }
-.titlebar-status.thinking { color: var(--accent); }
-.titlebar-status.thinking:hover { background: var(--accent-soft); border-left-color: var(--accent); }
+.titlebar-status.ready { color: var(--accent-solid); }
+.titlebar-status.no-key { color: var(--accent-solid); }
+.titlebar-status.thinking { color: var(--accent-solid); }
 .titlebar-right { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
 .dropdown-menu {
@@ -83,12 +80,12 @@
   font-size: 13px;
   color: var(--text-secondary);
   cursor: pointer;
-  border-bottom: 1px solid rgba(165,182,206,0.06);
+  border-bottom: 1px solid var(--line-light);
   border-left: 3px solid transparent;
   transition: background 0.15s, border-color 0.15s;
 }
 .dropdown-item:last-child { border-bottom: none; }
-.dropdown-item:hover { background: var(--accent-soft); color: #f8faff; border-left-color: var(--accent); }
+.dropdown-item:hover { background: var(--accent-soft); color: var(--text); border-left-color: var(--accent-solid); }
 
 .layout {
   display: grid;
@@ -99,7 +96,7 @@
 .ver-bar-row {
   display: flex;
   border-bottom: 1px solid var(--line);
-  background: rgba(6, 9, 18, 0.9);
+  background: var(--bg-panel);
 }
 
 .ver-bar-row .ver-bar-shared { height: var(--header-height); }
@@ -110,7 +107,7 @@
   border: none;
   border-right: 1px solid var(--line-light);
   border-left: 1px solid var(--line-light);
-  background: rgba(255,255,255,0.02);
+  background: var(--bg-hover);
   color: var(--muted);
   cursor: pointer;
   font-size: 11px;
@@ -119,7 +116,7 @@
   justify-content: center;
   transition: background 0.15s, color 0.15s;
 }
-.ver-nav-btn:hover:not(:disabled) { background: rgba(255,255,255,0.06); color: #f8faff; }
+.ver-nav-btn:hover:not(:disabled) { background: var(--accent-06); color: var(--text); }
 .ver-nav-btn:disabled { opacity: 0.25; cursor: default; }
 
 .ver-bar-shared {
@@ -147,9 +144,9 @@
   top: 0; bottom: 0;
   left: 2px;
   width: 2px;
-  background: rgba(255,255,255,0.08);
+  background: var(--line-light);
 }
-.splitter:hover::before { background: rgba(124,58,237,0.55); }
+.splitter:hover::before { background: var(--accent-55); }
 
 .editor-chat-col { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .ver-bar-wrapper { border-bottom: 1px solid var(--line); }
@@ -166,5 +163,5 @@
   border-left: 2px solid;
 }
 .qg-filling  { color: #febc2e; border-left-color: #febc2e; background: rgba(254,188,46,0.08); }
-.qg-retrying { color: var(--accent); border-left-color: var(--accent); background: var(--accent-soft); }
+.qg-retrying { color: var(--accent-solid); border-left-color: var(--accent-solid); background: var(--accent-soft); }
 .qg-failed   { color: #ff4d4f; border-left-color: #ff4d4f; background: rgba(255,77,79,0.08); }

@@ -1,4 +1,5 @@
-:root {
+:root,
+[data-theme="dark"] {
   --bg: #060912;
   --bg-panel: rgba(6, 9, 18, 0.92);
   --bg-hover: rgba(255, 255, 255, 0.02);
@@ -9,10 +10,104 @@
   --text: #edf4ff;
   --text-secondary: rgba(237, 244, 255, 0.86);
   --text-muted: rgba(237, 244, 255, 0.66);
+  --text-strong: #ffffff;
+  --editor-text: #edf4ff;
+  --editor-line: rgba(142, 162, 192, 0.60);
   --muted: #8ea2c0;
-  --accent: #7c3aed;
-  --accent-soft: rgba(124, 58, 237, 0.12);
-  --accent-border: rgba(124, 58, 237, 0.20);
+  --accent-r: 124;
+  --accent-g: 58;
+  --accent-b: 237;
+  --accent-solid: rgb(var(--accent-r), var(--accent-g), var(--accent-b));
+  --accent-025: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.025);
+  --accent-06: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.06);
+  --accent-10: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.10);
+  --accent-12: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.12);
+  --accent-15: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.15);
+  --accent-20: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.20);
+  --accent-30: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.30);
+  --accent-55: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.55);
+  --accent: var(--accent-solid);
+  --accent-soft: var(--accent-12);
+  --accent-border: var(--accent-20);
+  --accent-hover: color-mix(in srgb, var(--accent-solid) 78%, white);
+  --accent-bright: color-mix(in srgb, var(--accent-solid) 65%, white);
+  --chat-surface: rgba(255, 255, 255, 0.04);
+  --chat-surface-strong: rgba(255, 255, 255, 0.08);
+  --chat-user-bg: rgba(255, 255, 255, 0.08);
+  --chat-user-border: rgba(165, 182, 206, 0.35);
+  --chat-problem-bg: rgba(255, 255, 255, 0.08);
+  --chat-card-bg: rgba(255, 255, 255, 0.06);
+  --chat-question-bg: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.10);
+  --chat-question-selected: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.16);
+  --chat-quote-bg: rgba(255, 255, 255, 0.04);
+  --chat-text: #edf4ff;
+  --chat-text-strong: #ffffff;
+  --chat-text-muted: rgba(237, 244, 255, 0.82);
+  --chat-user-text: #edf4ff;
+  --chat-card-text: #e0e4ec;
+  --chat-heading-text: var(--accent-bright);
+  --chat-option-text: #edf4ff;
+  --chat-q-text: var(--text-secondary);
+  --scrollbar-thumb: rgba(128, 128, 128, 0.9);
+  --scrollbar-thumb-hover: rgba(128, 128, 128, 1);
+  --mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  --ui: Inter, system-ui, sans-serif;
+  --header-height: 48px;
+  --titlebar-height: 54px;
+  --version-tabs-height: 28px;
+}
+
+[data-theme="light"] {
+  --bg: #f5f5f7;
+  --bg-panel: rgba(255, 255, 255, 0.92);
+  --bg-hover: rgba(0, 0, 0, 0.03);
+  --bg-overlay: rgba(255, 255, 255, 0.92);
+  --line: rgba(0, 0, 0, 0.12);
+  --line-light: rgba(0, 0, 0, 0.08);
+  --line-medium: rgba(0, 0, 0, 0.10);
+  --text: #1d1d1f;
+  --text-secondary: rgba(29, 29, 31, 0.78);
+  --text-muted: rgba(29, 29, 31, 0.62);
+  --text-strong: #111111;
+  --editor-text: #1d1d1f;
+  --editor-line: rgba(29, 29, 31, 0.56);
+  --muted: #86868b;
+  --accent-r: 124;
+  --accent-g: 58;
+  --accent-b: 237;
+  --accent-solid: rgb(var(--accent-r), var(--accent-g), var(--accent-b));
+  --accent-025: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.025);
+  --accent-06: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.06);
+  --accent-10: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.10);
+  --accent-12: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.12);
+  --accent-15: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.15);
+  --accent-20: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.20);
+  --accent-30: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.30);
+  --accent-55: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.55);
+  --accent: var(--accent-solid);
+  --accent-soft: var(--accent-12);
+  --accent-border: var(--accent-20);
+  --accent-hover: color-mix(in srgb, var(--accent-solid) 78%, white);
+  --accent-bright: var(--accent-solid);
+  --chat-surface: rgba(0, 0, 0, 0.04);
+  --chat-surface-strong: rgba(0, 0, 0, 0.08);
+  --chat-user-bg: rgba(0, 0, 0, 0.04);
+  --chat-user-border: rgba(0, 0, 0, 0.15);
+  --chat-problem-bg: rgba(0, 0, 0, 0.04);
+  --chat-card-bg: rgba(0, 0, 0, 0.04);
+  --chat-question-bg: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.10);
+  --chat-question-selected: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.16);
+  --chat-quote-bg: rgba(0, 0, 0, 0.03);
+  --chat-text: #1d1d1f;
+  --chat-text-strong: #111111;
+  --chat-text-muted: rgba(29, 29, 31, 0.78);
+  --chat-user-text: #111111;
+  --chat-card-text: #1d1d1f;
+  --chat-heading-text: var(--accent-solid);
+  --chat-option-text: #1d1d1f;
+  --chat-q-text: var(--text);
+  --scrollbar-thumb: rgba(128, 128, 128, 0.15);
+  --scrollbar-thumb-hover: rgba(128, 128, 128, 0.25);
   --mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   --ui: Inter, system-ui, sans-serif;
   --header-height: 48px;
@@ -35,9 +130,9 @@ html, body, #root {
 }
 
 body {
-  background: radial-gradient(circle at 15% 10%, rgba(124, 58, 237, 0.2), transparent 28%),
+  background: radial-gradient(circle at 15% 10%, var(--accent-20), transparent 28%),
               radial-gradient(circle at 88% 16%, rgba(34, 211, 238, 0.14), transparent 24%),
-              linear-gradient(180deg, #04060b, #060912);
+              linear-gradient(180deg, color-mix(in srgb, var(--bg) 92%, #000), var(--bg));
   color: var(--text);
   font-family: var(--ui);
   -webkit-font-smoothing: antialiased;
@@ -52,15 +147,29 @@ body {
   background: transparent;
 }
 
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.05);
+:root::-webkit-scrollbar-thumb,
+[data-theme="dark"]::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.06);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.1);
+:root::-webkit-scrollbar-thumb:hover,
+[data-theme="dark"]::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+[data-theme="light"]::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.15);
+}
+
+[data-theme="light"]::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.25);
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.05) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.06) transparent;
+}
+
+[data-theme="light"] * {
+  scrollbar-color: rgba(128, 128, 128, 0.15) transparent;
 }

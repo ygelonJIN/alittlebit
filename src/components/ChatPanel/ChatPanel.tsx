@@ -167,7 +167,7 @@ function QuestionCard({ questions, onSelectionChange, answersRef, customRef }: {
                         {isSelfFill && selected[i] === j && (
                           <input
                             className="q-self-input"
-                            placeholder="输入你的答案..."
+                            placeholder="请输入"
                             value={customAnswers[i] || ''}
                             onChange={(e) => {
                               setCustomAnswers(prev => ({ ...prev, [i]: e.target.value }));
@@ -287,7 +287,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
       <div className="chat-body">
         {messages.map((m) => {
             if (m.role === 'user') {
-              return <div key={m.id} className="msg-user">{m.content}</div>;
+              return <div key={m.id} className="msg-user">{m.content.replace(/【inputType=(?:answer|idea)】\n/, '').replace(/【请在你的回复末尾输出.*?】\n\n/, '')}</div>;
             }
             const { restContent, questions } = parseQuestions(m.content);
             return (
@@ -349,7 +349,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
                     onKeyDown={handleKeyDown}
                     onCompositionStart={() => { isComposing.current = true; }}
                     onCompositionEnd={handleCompositionEnd}
-                    placeholder=""
+                    placeholder="请输入"
                     rows={3}
                     disabled={isReadOnly || isLoading}
                   />

@@ -3,7 +3,7 @@
   grid-template-rows: var(--header-height) 1fr;
   min-height: 0;
   height: 100%;
-  background: rgba(255, 255, 255, 0.015);
+  background: var(--bg-hover);
 }
 
 .explorer-head {
@@ -22,20 +22,22 @@
 .new-file-btn {
   display: flex; align-items: center; justify-content: center;
   width: 24px; height: 24px;
-  border: 1px solid rgba(255,255,255,0.08);
-  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--line-light);
+  background: var(--bg-overlay);
   color: var(--text-muted);
   font-size: 16px; cursor: pointer; line-height: 1;
 }
-.new-file-btn:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+.new-file-btn:hover { background: var(--accent-06); color: var(--text); }
 
 .new-file-row { padding: 0; }
 .new-file-input {
-  width: 100%; height: 42px;
-  background: var(--bg-overlay);
-  border: 1px solid var(--accent);
-  color: #f8faff; font-size: 14px;
-  padding: 0 14px; outline: none;
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--accent-soft);
+  border: none;
+  border-left: 3px solid var(--accent-solid);
+  color: var(--text); font-size: 14px; line-height: 1.7;
+  outline: none;
   box-sizing: border-box;
 }
 
@@ -50,21 +52,20 @@
   border-left: 3px solid transparent;
   transition: background 0.15s, border-color 0.15s;
 }
-.group-header:hover { background: rgba(255,255,255,0.03); }
-.group-header .group-arrow { font-size: 10px; width: 14px; text-align: center; color: var(--muted); flex-shrink: 0; transition: transform 0.15s; }
+.group-header .group-arrow { font-size: 10px; width: 14px; text-align: center; color: var(--muted); flex-shrink: 0; transition: transform 0.15s, color 0.15s; }
 
 .group-a .group-header, .group-b .group-header, .group-c .group-header, .group-d .group-header, .group-x .group-header { color: var(--accent); }
-.group-a .group-header:hover, .group-b .group-header:hover, .group-c .group-header:hover, .group-d .group-header:hover, .group-x .group-header:hover { background: rgba(255,255,255,0.02); }
-.group-a .group-header.expanded .group-arrow, .group-b .group-header.expanded .group-arrow, .group-c .group-header.expanded .group-arrow, .group-d .group-header.expanded .group-arrow, .group-x .group-header.expanded .group-arrow { color: #a78bfa; transform: rotate(90deg); }
+.group-a .group-header:hover, .group-b .group-header:hover, .group-c .group-header:hover, .group-d .group-header:hover, .group-x .group-header:hover { background: var(--accent-06); }
+.group-a .group-header.expanded .group-arrow, .group-b .group-header.expanded .group-arrow, .group-c .group-header.expanded .group-arrow, .group-d .group-header.expanded .group-arrow, .group-x .group-header.expanded .group-arrow { color: var(--accent-solid); transform: rotate(90deg); }
 
-.light-pill { width: 10px; height: 10px; background: #555; cursor: pointer; flex-shrink: 0; transition: background 0.15s, box-shadow 0.15s; }
-.light-pill:hover { background: #777; }
-.light-pill.light-green { background: #28c840; box-shadow: 0 0 4px rgba(40,200,64,0.4); }
+.light-pill { width: 10px; height: 10px; background: var(--muted); cursor: pointer; flex-shrink: 0; transition: background 0.15s, box-shadow 0.15s; }
+.light-pill:hover { background: var(--text-secondary); }
+.light-pill.light-green { background: #1ea032; box-shadow: 0 0 4px rgba(30,160,50,0.4); }
 .light-pill.light-yellow { background: #febc2e; box-shadow: 0 0 4px rgba(254,188,46,0.4); }
 
 .file-child { padding-left: 38px !important; }
-.file-child:hover { background: rgba(255,255,255,0.02); }
-.file-child.active { background: rgba(255,255,255,0.02); }
+.file-child:hover { background: var(--accent-06); }
+.file-child.active { background: var(--accent-06); }
 
 .file-item {
   display: flex; align-items: center; gap: 10px;
@@ -74,17 +75,17 @@
   cursor: default; user-select: none;
   border-left: 3px solid transparent;
 }
-.file-item:hover { background: rgba(255,255,255,0.02); }
-.file-item.active { background: var(--accent-soft); border-left-color: var(--accent); }
+.file-item:hover { background: var(--accent-06); }
+.file-item.active { background: var(--accent-soft); border-left-color: var(--accent-solid); }
 
 .file-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .group-header .file-name { font-size: 13px; font-weight: 700; }
 .file-child .file-name { font-weight: 500; }
 .file-name-input {
-  background: rgba(255,255,255,0.06);
+  background: var(--bg-hover);
   border: none;
-  border-bottom: 2px solid var(--accent);
-  color: #f8faff;
+  border-bottom: 2px solid var(--accent-solid);
+  color: var(--text);
   font-size: 14px;
   font-weight: 500;
   padding: 1px 4px;
@@ -96,24 +97,24 @@
 
 .file-action-btn {
   margin-left: auto;
-  height: 20px;
+  height: 24px;
   padding: 0 8px;
   border: none;
   border-left: 2px solid transparent;
-  font-size: 10px; font-weight: 600; line-height: 1;
+  font-size: 12px; font-weight: 600; line-height: 1;
   cursor: pointer; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   background: transparent;
   transition: background 0.15s, border-color 0.15s;
 }
-.file-action-btn.reset { color: #ff4d4f; }
-.file-action-btn.reset:hover { background: rgba(255,77,79,0.12); border-left-color: #ff4d4f; }
-.file-action-btn.delete { color: #ff4d4f; }
-.file-action-btn.delete:hover { background: rgba(255,77,79,0.12); border-left-color: #ff4d4f; }
+.file-action-btn.reset { color: var(--accent-solid); }
+.file-action-btn.reset:hover { background: var(--accent-soft); border-left-color: var(--accent-solid); }
+.file-action-btn.delete { color: var(--accent-solid); }
+.file-action-btn.delete:hover { background: var(--accent-soft); border-left-color: var(--accent-solid); }
 .file-action-btn.confirming {
-  background: rgba(255,77,79,0.18);
-  color: #ff4d4f;
-  border-left-color: #ff4d4f;
+  background: var(--accent-15);
+  color: var(--accent-solid);
+  border-left-color: var(--accent-solid);
 }
 
-.file-action-spacer { width: 40px; height: 20px; flex-shrink: 0; }
+.file-action-spacer { width: 40px; height: 24px; flex-shrink: 0; }
