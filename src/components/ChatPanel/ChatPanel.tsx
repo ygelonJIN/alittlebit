@@ -408,7 +408,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
                   </button>
                 </div>
                 <div className="footer">
-                  <div className="hint">{isReadOnly ? '版本已锁定' : activeMode === 'reply' ? '快捷回复问题' : activeMode === 'change' ? '变更模式' : '变更模式'}</div>
+                  <div className="hint">{isReadOnly ? '版本已锁定' : activeMode === 'reply' ? '自由回复' : activeMode === 'change' ? '新增想法' : 'letsgo'}</div>
                   <button className="btn" onClick={doSend} disabled={isReadOnly || isLoading}>发送</button>
                 </div>
               </div>
