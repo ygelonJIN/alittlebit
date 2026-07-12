@@ -51,7 +51,6 @@ function parseQuestions(content: string): { restContent: string; questions: Pars
     }
 
     const options: QuestionOption[] = [];
-    let hasSelfFill = false;
     for (let i = optStart; i < bl.length; i++) {
       const line = bl[i];
       const m = line.match(/^[-–]?\s*([A-C])[.：)]\s*(.+)/);
@@ -61,16 +60,11 @@ function parseQuestions(content: string): { restContent: string; questions: Pars
         const label = descIdx > 0 ? rest.slice(0, descIdx).replace(/[，,]\s*$/, '').trim() : rest;
         const desc = descIdx > 0 ? rest.slice(descIdx) : '';
         options.push({ label: m[1] + '. ' + label, desc });
-      } else if (line === '自行填写' || line.startsWith('自行填写')) {
-        hasSelfFill = true;
       } else if (!questionText) {
         questionText = line.replace(/\*\*/g, '').replace(/\*/g, '').trim();
       }
     }
-    const hasSelfFillOpt = options.some(o => o.label.startsWith('自行填写'));
-    if (!hasSelfFill && !hasSelfFillOpt) {
-      options.push({ label: '自行填写', desc: '输入你的答案' });
-    }
+    options.push({ label: '自行填写', desc: '输入你的答案' });
     questions.push({ text: questionText, options });
   }
   return { restContent, questions };
@@ -106,13 +100,14 @@ function renderMarkdown(text: string): string {
   return result.join('');
 }
 
-function QuestionCard({ questions, onSelectionChange, answersRef, customRef }: {
+function QuestionCard({ questions, onSelectionChange, answersRef, customRef, batchId }: {
   questions: ParsedQuestion[];
   onSelectionChange?: (count: number) => void;
-  answersRef?: React.MutableRefObject<Record<number, { label: string; custom: string }>>;
-  customRef?: React.MutableRefObject<Record<number, string>>;
+  answersRef?: React.MutableRefObject<Record<string, Record<number, { label: string; custom: string }>>>;
+  customRef?: React.MutableRefObject<Record<string, Record<number, string>>>;
+  batchId?: string;
 }) {
-  if (questions.length === 0) return null;
+  if (questions.length === 0 || !batchId) return null;
   const [selected, setSelected] = useState<Record<number, number>>({});
   const [customAnswers, setCustomAnswers] = useState<Record<number, string>>({});
 
@@ -125,16 +120,17 @@ function QuestionCard({ questions, onSelectionChange, answersRef, customRef }: {
       const newCount = Object.keys(next).length;
       onSelectionChange?.(newCount);
       if (answersRef) {
-        const nextAnswers = { ...answersRef.current };
-        delete nextAnswers[qIdx];
-        answersRef.current = nextAnswers;
+        const batch = { ...(answersRef.current[batchId] || {}) };
+        delete batch[qIdx];
+        answersRef.current = { ...answersRef.current, [batchId]: batch };
       }
     } else {
       const newCount = Object.keys({ ...selected, [qIdx]: optIdx }).length;
       setSelected(prev => ({ ...prev, [qIdx]: optIdx }));
       onSelectionChange?.(newCount);
       if (answersRef) {
-        answersRef.current = { ...answersRef.current, [qIdx]: { label: optLabel, custom: customAnswers[qIdx] || '' } };
+        const batch = { ...(answersRef.current[batchId] || {}), [qIdx]: { label: optLabel, custom: customAnswers[qIdx] || '' } };
+        answersRef.current = { ...answersRef.current, [batchId]: batch };
       }
     }
   };
@@ -171,7 +167,10 @@ function QuestionCard({ questions, onSelectionChange, answersRef, customRef }: {
                             value={customAnswers[i] || ''}
                             onChange={(e) => {
                               setCustomAnswers(prev => ({ ...prev, [i]: e.target.value }));
-                              if (customRef) customRef.current = { ...customRef.current, [i]: e.target.value };
+                              if (customRef) {
+                                const batchCustoms = { ...(customRef.current[batchId] || {}), [i]: e.target.value };
+                                customRef.current = { ...customRef.current, [batchId]: batchCustoms };
+                              }
                             }}
                             onClick={(e) => e.stopPropagation()}
                             autoFocus
@@ -198,13 +197,20 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const sendMessage = useStore((s) => s.sendMessage);
   const isLoading = useStore((s) => s.isLoading);
   const apiKey = useStore((s) => s.apiKey);
+  const lockAdvance = useStore((s) => s.lockAdvance);
+  const confirmLockAdvance = useStore((s) => s.confirmLockAdvance);
+  const cancelLockAdvance = useStore((s) => s.cancelLockAdvance);
+  const retryPrompt = useStore((s) => s.retryPrompt);
+  const clearRetryPrompt = useStore((s) => s.clearRetryPrompt);
+  const retrySend = useStore((s) => s.retrySend);
+  const clearMessages = useStore((s) => s.clearMessages);
   const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(new Set());
   const isComposing = useRef(false);
   const [questionCompleted, setQuestionCompleted] = useState(0);
-  const selectedAnswers = useRef<Record<number, { label: string; custom: string }>>({});
-  const customRef = useRef<Record<number, string>>({});
+  const selectedAnswers = useRef<Record<string, Record<number, { label: string; custom: string }>>>({});
+  const customRef = useRef<Record<string, Record<number, string>>>({});
   const [inputExpanded, setInputExpanded] = useState(false);
-  const [activeMode, setActiveMode] = useState<'submit' | 'reply' | 'idea' | null>(null);
+  const [activeMode, setActiveMode] = useState<'submit' | 'reply' | 'change' | null>(null);
   const composerRef = useRef<HTMLDivElement>(null);
 
   const toggleMsg = (id: string) => {
@@ -229,8 +235,14 @@ export default function ChatPanel({ isReadOnly }: Props) {
 
   const submitOptions = () => {
     if (isLoading || isReadOnly) return;
-    const answers = selectedAnswers.current;
-    const customs = customRef.current;
+    // Find current batch = last assistant message with questions
+    let currentBatchId = '';
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') { currentBatchId = messages[i].id; break; }
+    }
+    if (!currentBatchId) return;
+    const answers: Record<number, { label: string; custom: string }> = selectedAnswers.current[currentBatchId] || {};
+    const customs = customRef.current[currentBatchId] || {};
     const parts: string[] = [];
     for (const [idx, ans] of Object.entries(answers).sort(([a], [b]) => Number(a) - Number(b))) {
       const custom = customs[Number(idx)] || '';
@@ -251,14 +263,19 @@ export default function ChatPanel({ isReadOnly }: Props) {
       const tagged = `【inputType=answer】\n` + text;
       setInputText(tagged);
       setTimeout(() => sendMessage(), 50);
+    } else if (activeMode === 'change') {
+      const tagged = `【inputType=change】\n` + text;
+      setInputText(tagged);
+      setTimeout(() => sendMessage(), 50);
     } else {
-      const tagged = `【inputType=idea】\n` + text;
+      // Cold start: no active mode, default to answer
+      const tagged = `【inputType=answer】\n` + text;
       setInputText(tagged);
       setTimeout(() => sendMessage(), 50);
     }
   };
 
-  const openMode = (mode: 'submit' | 'reply' | 'idea') => {
+  const openMode = (mode: 'submit' | 'reply' | 'change') => {
     setActiveMode(prev => prev === mode ? null : mode);
   };
 
@@ -271,6 +288,18 @@ export default function ChatPanel({ isReadOnly }: Props) {
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // On mount: check for interrupted session (last message is user = no AI reply received)
+  useEffect(() => {
+    const msgs = useStore.getState().messages;
+    if (msgs.length === 0) return;
+    const lastMsg = msgs[msgs.length - 1];
+    if (lastMsg.role === 'user') {
+      // AI reply never arrived. Restore the user's input so they can resend.
+      const text = lastMsg.content.replace(/【inputType=(?:answer|change)】\n/, '').replace(/【请在你的回复末尾输出.*?】\n\n/, '');
+      setInputText(text);
+    }
   }, []);
 
   let lastQuestionCount = 0;
@@ -287,7 +316,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
       <div className="chat-body">
         {messages.map((m) => {
             if (m.role === 'user') {
-              return <div key={m.id} className="msg-user">{m.content.replace(/【inputType=(?:answer|idea)】\n/, '').replace(/【请在你的回复末尾输出.*?】\n\n/, '')}</div>;
+              return <div key={m.id} className="msg-user">{m.content.replace(/【inputType=(?:answer|change)】\n/, '').replace(/【请在你的回复末尾输出.*?】\n\n/, '')}</div>;
             }
             const { restContent, questions } = parseQuestions(m.content);
             return (
@@ -296,7 +325,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
                   className="msg-markdown"
                   dangerouslySetInnerHTML={{ __html: renderMarkdown(restContent) }}
                 />
-                <QuestionCard questions={questions} onSelectionChange={setQuestionCompleted} answersRef={selectedAnswers} customRef={customRef} />
+                <QuestionCard questions={questions} onSelectionChange={setQuestionCompleted} answersRef={selectedAnswers} customRef={customRef} batchId={m.id} />
                 {m.questionGenMeta?.attempted && (
                   <div className="qg-meta">
                     {m.questionGenMeta.fillCount > 0 ? `已补缺 ${m.questionGenMeta.fillCount} 个` : ''}
@@ -326,7 +355,28 @@ export default function ChatPanel({ isReadOnly }: Props) {
         {isLoading && (
           <div className="loading-msg"><em>AI 思考中...</em></div>
         )}
+        <div className="new-session-bar">
+          <button className="btn new-session-btn" onClick={() => { useStore.getState().clearMessages(); }}>新开 Session</button>
+        </div>
       </div>
+      {lockAdvance && (
+        <div className="lock-advance-bar">
+          <span className="lock-advance-text">AI 建议锁定当前文档并进入下一阶段。是否继续？</span>
+          <div className="lock-advance-actions">
+            <button className="btn lock-advance-confirm" onClick={confirmLockAdvance}>确认</button>
+            <button className="btn lock-advance-cancel" onClick={cancelLockAdvance}>取消</button>
+          </div>
+        </div>
+      )}
+      {retryPrompt && (
+        <div className="lock-advance-bar">
+          <span className="lock-advance-text">上一次请求失败，未收到回复。是否重试？</span>
+          <div className="lock-advance-actions">
+            <button className="btn lock-advance-confirm" onClick={retrySend}>重试</button>
+            <button className="btn lock-advance-cancel" onClick={clearRetryPrompt}>取消</button>
+          </div>
+        </div>
+      )}
       {(!hasQuestions || activeMode !== null || (hasQuestions && activeMode === null)) && (
         <div className="composer" ref={composerRef}>
           <div className={`input${isReadOnly ? ' readonly' : ''}`}>
@@ -335,7 +385,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
                 <button className="chat-submit-btn" disabled={isLoading} onClick={submitOptions}>提交选项</button>
                 <div className="chat-actions-right">
                   <button className={`chat-submit-btn small${activeMode === 'reply' ? ' active' : ''}`} disabled={isLoading} onClick={() => openMode('reply')}>自由回复</button>
-                  <button className={`chat-submit-btn small${activeMode === 'idea' ? ' active' : ''}`} disabled={isLoading} onClick={() => openMode('idea')}>新增想法</button>
+                  <button className={`chat-submit-btn small${activeMode === 'change' ? ' active' : ''}`} disabled={isLoading} onClick={() => openMode('change')}>新增想法</button>
                 </div>
               </div>
             ) : (
@@ -358,7 +408,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
                   </button>
                 </div>
                 <div className="footer">
-                  <div className="hint">{isReadOnly ? '版本已锁定' : activeMode === 'reply' ? '快捷回复问题' : activeMode === 'idea' ? '新增想法或目标' : '新增想法或目标'}</div>
+                  <div className="hint">{isReadOnly ? '版本已锁定' : activeMode === 'reply' ? '快捷回复问题' : activeMode === 'change' ? '变更模式' : '变更模式'}</div>
                   <button className="btn" onClick={doSend} disabled={isReadOnly || isLoading}>发送</button>
                 </div>
               </div>

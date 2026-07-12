@@ -113,9 +113,9 @@ export default function FileExplorer({ files }: Props) {
                 >
                   {showLight ? (
                     <span
-                      className={`pill light-pill${f.light === 'green' ? ' light-green' : f.light === 'yellow' ? ' light-yellow' : ''}`}
+                      className={`pill light-pill${f.light === 'green' ? ' light-green' : ''}`}
                       onClick={(e) => { e.stopPropagation(); toggleLight(f.id); }}
-                      title={f.light === 'green' ? '绿灯：已锁定' : f.light === 'yellow' ? '黄灯：系统建议完成，点击确认' : '灰灯：待确认'}
+                      title={f.light === 'green' ? '已锁定' : '待确认（点击切换）'}
                     />
                   ) : null}
                   {editingFileId === f.id ? (

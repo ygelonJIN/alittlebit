@@ -6,8 +6,7 @@ export interface FileItem {
   active?: boolean;
   category?: 'a' | 'b' | 'c' | 'd' | 'x';
   children?: FileItem[];
-  light?: 'gray' | 'green' | 'yellow'; // only for A group files
-  lockedLight?: boolean;
+  light?: 'gray' | 'green'; // only for A group files
   hasTemplate?: boolean;
   createdByUser?: boolean;
   templateContent?: string;

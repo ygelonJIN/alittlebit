@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type { VersionItem } from './data/versions';
 import type { FileItem } from './data/files';
 import type { EditorLine } from './data/editorLines';
@@ -35,6 +36,12 @@ export interface AppState {
   apiEndpoint: string;
   isLoading: boolean;
   questionCount: number;
+  lockAdvance: { fileId: string; nextFileId: string } | null;
+  retryPrompt: string | null;
+  fileMessages: Record<string, ChatMessage[]>;
+  clearRetryPrompt: () => void;
+  retrySend: () => void;
+  clearMessages: () => void;
   selectVersion: (id: string) => void;
   selectFile: (id: string) => void;
   selectLine: (id: string) => void;
@@ -48,10 +55,13 @@ export interface AppState {
   setApiKey: (key: string) => void;
   setApiEndpoint: (endpoint: string) => void;
   setQuestionCount: (n: number) => void;
+  confirmLockAdvance: () => Promise<void>;
+  cancelLockAdvance: () => void;
+  setLockAdvance: (info: { fileId: string; nextFileId: string } | null) => void;
   generateVersionFiles: (versionId: string) => Promise<void>;
   createFile: (name: string) => Promise<void>;
   toggleLight: (fileId: string) => void;
-  setLight: (fileId: string, light: 'gray' | 'green' | 'yellow') => void;
+  setLight: (fileId: string, light: 'gray' | 'green') => void;
   resetFile: (fileId: string) => Promise<void>;
   deleteFile: (fileId: string) => Promise<void>;
   renameFile: (fileId: string, newName: string) => Promise<void>;
@@ -161,8 +171,8 @@ const SYSTEM_PROMPT = [
   '==================================================',
   '四、提问顺序',
   '==================================================',
-  '你必须按"从宽到窄"的顺序提问，但必须结合当前文档阶段。默认提问顺序：目标 → 用户 → 场景 → 范围 → 边界 → 约束 → 功能 → 非功能需求 → 依赖 → 风险 → 验收标准 → 版本治理要求',
-  '当当前阶段对应某一份文档时，你必须优先补全该文档的缺口字段，而不是泛泛追问。',
+  '你必须看当前文档快照的实际内容来决定追问，不按固定模板机械追问。',
+  '内容为空 + 没有 N/A 标注的章节 → 追问。已填内容、已有 N/A 标注的章节 → 跳过。不确定是否需要 → 追问用户确认。',
   'PRD 阶段优先补：背景、目标、范围、用户、场景、功能、非功能、成功指标',
   'Features 阶段优先补：功能编号、分类、优先级、验收标准、依赖、边界',
   'Rules 阶段优先补：技术栈、命名、目录、状态管理、API、测试、安全',
@@ -176,26 +186,12 @@ const SYSTEM_PROMPT = [
   '==================================================',
   '五、灯状态规则',
   '==================================================',
-  '只有 A 类核心产出文档需要灯。B / C / D 类治理文档不需要灯。',
-  '灰色：当前文件未结束，允许继续追问',
-  '黄色：系统判断接近完成，建议收口，但仍允许补问',
-  '绿色：当前文件已结束，不再追问',
-  '锁定：用户明确确认结束，自动逻辑不得再改回灰色',
-  '灯状态优先级：1. 用户手动锁定状态  2. 用户手动当前状态  3. 系统自动判定状态',
-  '用户点绿后，该文件默认进入锁定结束状态；用户点灰后，该文件恢复可追问状态。',
+  '只有 A 类核心产出文档有灯（手动控制）。B / C / D 类治理文档不需要灯。',
+  '用户手动点绿 = 锁定结束，不再追问。用户手动点回灰 = 恢复可追问状态。',
   '锁定状态下，不得继续追问该文件。若文件已锁定，只允许查看或基于它派生新版本。',
   '',
   '==================================================',
-  '六、自动灯判定规则',
-  '==================================================',
-  '自动判定只在用户未手动指定状态时生效。',
-  '自动变绿条件：必填字段已完成 + 关键章节已完成 + 无阻塞性待确认项 + 无占位符残留 + 达到当前类型最低完成标准',
-  '自动变黄条件：主要内容已完成 + 仍有少量非阻塞性待确认项 + 已接近收口但不适合锁定',
-  '自动变灰条件：必填字段或关键章节缺失 / 存在阻塞性待确认项 / 存在占位符残留 / 未达最低完成标准',
-  '绿灯不是装饰，而是"不再追问"的信号；黄灯是"建议收口"的中间态；灰灯是"继续追问"的信号。',
-  '',
-  '==================================================',
-  '七、文档完成规则',
+  '六、文档完成规则',
   '==================================================',
   '文档不要求"所有位置都填满"，而要求：必填项完成 + 关键章节完成 + 无阻塞项 + 无未确认的核心缺口 + 达到当前文档类型的最低完成标准。',
   '以下内容出现时，视为未完成或未收口：{ ... } / TODO / TBD / 待确认 / 未定 / 暂存 / 未确认。如果出现在阻塞字段中，文档不能变绿。',
@@ -214,13 +210,18 @@ const SYSTEM_PROMPT = [
   '- 已确认 / 推断 / 待定',
   '',
   '### 缺口分析',
-  '- 关键缺口 1-3 个',
+  '列出关键缺口前，必须先看文档快照自检：',
+  '- 快照中已有 N/A 标注的章节 → 不是缺口，跳过不追问',
+  '- 快照中为空、但前几轮用户说过不需要（不限用词，看语义）→ 这是你漏写了 N/A',
+  '  必须先在 writeActions 中补写 N/A 标注，再从缺口列表中剔除',
+  '- 只列真正未处理过的空白章节',
+  '出 1-3 个关键缺口',
   '',
   '### 状态判断',
-  '- 当前阶段 / 当前文档状态 / 当前灯状态 / 是否允许继续追问 / 是否建议收口',
+  '- 当前阶段 / 文档缺口判断（是否还有未填写的阻塞项）',
   '',
   '### 下一步',
-  '- 继续追问 / 进入下一阶段 / 建议锁定 / 建议派生新版本',
+  '- 继续追问 / 建议锁定并进入下一阶段',
   '',
   '### 本轮问题',
   '格式要求：每个问题必须严格按以下示例格式输出：',
@@ -241,7 +242,15 @@ const SYSTEM_PROMPT = [
   '你必须尽量避免长篇散文式回答，优先结构化输出。',
   '',
   '==================================================',
-  '十、语义路由规则（乱序输入，有序处理）',
+  '十、核心行为规则',
+  '==================================================',
+  '1. 用户表达排斥/推迟/暂不考虑（不限用词，看语义）→ writeActions 写入 N/A 标注。不写=错误。',
+  '2. 文档快照中已有 N/A 标注的章节 → 不是缺口，不追问。',
+  '3. writeActions 只能写用户明确确认的内容。禁止编造（如用户没说的导出功能、加密模式、K值）。',
+  '   N/A 标注格式："N/A：用户声明不需要。" 或 "N/A：本期不考虑，用户表示日后再说。"',
+  '',
+  '==================================================',
+  '十一、语义路由规则（乱序输入，有序处理）',
   '==================================================',
   '用户可以乱序表达、天马行空。系统必须按语义分发，同一句话可命中多个文档。',
   '总原则：当前激活文档优先 / 已锁定文档不直接改写 / 不确定内容先暂存 / 文档链按 PRD→Features→Rules→RFC→Implementation→Review→Testing→Change 顺序推进',
@@ -285,16 +294,16 @@ const SYSTEM_PROMPT = [
   '## 一句话多义时优先级：当前激活文档 > 当前阶段文档 > 上游文档 > Rules > 版本治理文档 > 暂存区',
   '',
   '==================================================',
-  '十一、乱序输入处理流程',
+  '十二、乱序输入处理流程',
   '==================================================',
   '1. 识别：判断输入中包含几个语义块',
   '2. 拆分：将复合输入拆成多个候选信息单元',
   '3. 归类：将每个单元按路由表路由到对应文档或暂存区',
-  '4. 判断状态：目标文档是灰/黄/绿/锁定',
-  '5. 执行：灰灯可写入+追问 / 黄灯建议收口 / 绿灯不写只读 / 锁定只读需派生',
+  '4. 判断状态：目标文档是否已锁定',
+  '5. 执行：未锁定可写入+追问 / 锁定只读需派生',
   '',
   '==================================================',
-  '十二、暂存与冲突规则',
+  '十三、暂存与冲突规则',
   '==================================================',
   '以下情况必须暂存：归类不明确 / 依赖未满足 / 与当前阶段不一致 / 与锁定内容冲突 / 用户表达不足以定稿',
   '暂存内容不得直接定稿，只能在后续追问确认后写入。暂存项可跨文档存在但不重复定稿。',
@@ -302,14 +311,14 @@ const SYSTEM_PROMPT = [
   '若仍无法判断，先追问，不得猜测定稿。',
   '',
   '==================================================',
-  '十三、结构化输出协议（必须严格遵守）',
+  '十四、结构化输出协议（必须严格遵守）',
   '==================================================',
   '【这是你最重要的任务】每轮回复末尾必须输出 ```json 协议块，无一例外。即使用户只是选了选项，也必须输出 writeActions 把本轮确认的内容写入文档。禁止输出空的 writeActions。',
   '协议格式（严格按此结构）：',
   '{',
-  '  "currentDocument": { "type": "文档类型", "file": "文件名", "status": "gray/yellow/green" },',
+  '  "currentDocument": { "type": "文档类型", "file": "文件名", "locked": false },',
   '  "documentChain": [',
-  '    { "type": "PRD", "file": "prd.md", "status": "gray", "locked": false },',
+  '    { "type": "PRD", "file": "prd.md", "locked": false },',
   '    ...',
   '  ],',
   '  "shouldAdvance": false,',
@@ -320,7 +329,7 @@ const SYSTEM_PROMPT = [
   '  "temporaryActions": [],',
   '  "questions": ["问题1", "问题2", "问题3"],',
   '  "confirmations": ["本轮已确认内容1"],',
-  '  "uiActions": { "selectFile": null, "setLight": null, "lockCurrentDocument": false }',
+  '  "uiActions": { "selectFile": null, "lockCurrentDocument": false }',
   '}',
   '重要规则：',
   '- 每轮必带协议块，不管上下文是什么。用户选选项、简短回答、闲聊、任何情况都必须输出。',
@@ -328,10 +337,7 @@ const SYSTEM_PROMPT = [
   '- 例如用户选了A选项"30次用完永久锁定"，你应该写：content: "猜错次数上限为30次，用完永久锁定，无法恢复。"',
   '- targetSection 用文档中的原标题，如"2. 背景与概述""3. 问题定义""4. 目标"',
   '- operation 推荐使用 upsert；同一 section 多轮对话应增量更新而不是整文件覆盖',
-  '- shouldAdvance 为 true 时，必须同时设置 suggestedNextDocument 和 uiActions.selectFile',
-  '- setLight 为 green 时，必须同时设置 lockCurrentDocument = true',
-  '- 不确定内容走 temporaryActions，不得进 writeActions',
-  '- 当前文档灰灯时 shouldAdvance 必须为 false',
+  '- 不确定内容走临时暂存，不得进 writeActions',
   '- questions 最多 5 个',
   '- JSON 必须合法可解析，不得有注释或尾部逗号',
   '',
@@ -576,18 +582,17 @@ function buildRuntimeContext(questionCount: number, versions: any[], activeId: s
   })();
   const currentDocType = activeFile?.category === 'a' ? activeFile.name : null;
 
-  // Determine current mode
+  // Determine current mode: only fill or locked
   let mode = 'fill_current_doc';
-  if (currentDocType && activeFile?.light === 'yellow') mode = 'suggest_complete';
   if (currentDocType && activeFile?.light === 'green') mode = 'locked';
 
-  // Build chain progress table
+  // Build chain progress table (locked vs active)
   let chainStatus = '';
   for (let i = 0; i < docChain.length; i++) {
     const child = aChildren[i];
-    const light = child?.light ?? 'gray';
+    const locked = child?.light === 'green';
     const marker = child?.name === currentDocType ? ' ← 当前' : '';
-    chainStatus += '- ' + docChain[i] + '：' + (light === 'green' ? '绿' : light === 'yellow' ? '黄' : '灰') + marker + '\n';
+    chainStatus += '- ' + docChain[i] + '：' + (locked ? '已锁定' : '进行中') + marker + '\n';
   }
 
   const context = [
@@ -595,8 +600,7 @@ function buildRuntimeContext(questionCount: number, versions: any[], activeId: s
     '==================================================',
     '【运行时上下文 — 必须遵守】',
     '==================================================',
-    '当前激活文档：' + (currentDocType ? currentDocType + ' (' + (activeFile?.light ?? 'gray') + '灯)' : '无（未选择 A 类文档）'),
-    '当前提问模式：' + mode,
+    '当前激活文档：' + (currentDocType ? currentDocType + (activeFile?.light === 'green' ? '（已锁定）' : '') : '无（未选择 A 类文档）'),
     '',
     '项目领域边界：只讨论与 ' + (currentDocType || '当前文档') + ' 直接相关的概念，禁止引入不属于本项目的机制或术语。',
     '',
@@ -604,12 +608,10 @@ function buildRuntimeContext(questionCount: number, versions: any[], activeId: s
     chainStatus.trim(),
     '',
     '本轮规则：',
-    '- 灰灯：继续追问当前文档，补全缺口',
-    '- 黄灯：建议收口，但仍可补问',
-    '- 绿灯/锁定：当前文档结束，不得追问',
-    '- 当前文档未完成（灰/黄），不得跳到下一个文档',
+    '- 当前文档锁定（绿色）：不得追问，提示用户切换文档或派生新版本',
+    '- 当前文档未锁定：继续追问补全文档缺口',
+    '- 根据文档内容判断：发现阻塞缺口（空章节、未填核心字段等）继续追问；未发现缺口建议用户锁定',
     '- 当前文档内按 section 顺序优先追问，前面未完成的 section 补完之前不得跳到后面的 section',
-    '- 当前文档完成后，自动进入下一个文档',
     '- 不输出未激活文档的内容',
     '',
   ].join('\n');
@@ -617,16 +619,24 @@ function buildRuntimeContext(questionCount: number, versions: any[], activeId: s
   let ctx = '【硬性指令】你必须且只能提出**恰好 ' + questionCount + ' 个**问题。不满 ' + questionCount + ' 个或多于 ' + questionCount + ' 个均为错误。\n\n';
   ctx += '【问题输出格式模板】\n' + questionList + '\n\n';
   ctx += context;
-  ctx += '\n\n【协议要求 — 本轮必须执行】\n';
-  ctx += '输入类型路由：用户消息以【inputType=answer】开头时，表明这是对当前问题的答案，必须输出 writeActions 写入文档。以【inputType=idea】开头时，表明这是新想法，必须开启新一轮追问，不得映射为当前问题答案。\n';
-  ctx += '你的回复末尾必须包含 ```json 协议块。即使用户只是选了选项、说了"好"、或简短回答，也必须输出。\n';
-  ctx += 'writeActions.content 规则：\n';
-  ctx += '  1. 只写本轮用户明确确认的内容，写成可直接放入文档的正文。\n';
-  ctx += '  2. 禁止包含模板占位符（如{项目名称}、{编号}等）。\n';
-  ctx += '  3. 禁止包含其他 section 的 ## 标题。\n';
-  ctx += '  4. 只写 targetSection 指定的那个段落的内容，不要越界写其他 section。\n';
-  ctx += '  5. 用户选了选项A"30次用完锁定"，写成"猜错上限30次，用完永久锁定"，不是"用户选择了A"。\n';
-  ctx += '本轮用户回答（包括选项选择）确认的所有信息都是重要信息，必须全部写入对应 section。禁止延迟写入、禁止跳过。writeActions 不得为空。';
+  ctx += '\n\n【协议要求 — 本轮必须执行的写入动作】\n';
+  ctx += '输入类型路由：\n';
+  ctx += '- 【inputType=answer】：用户对当前问题的回答，必须输出 writeActions 写入当前文档。\n';
+  ctx += '- 【inputType=change】（横向纠偏），已注入所有A类文档全量。你需要：① 检查用户提出的变更是否与上游文档矛盾 ② 如有矛盾，追问确认后修改对应文档 ③ 同时在 Change Management 文档中记录变更（原始内容、变更后内容、原因、影响范围）④ 变更完成后回到当前文档继续。\n';
+  ctx += '\n';
+  ctx += '【N/A 跳过标注 — 必须写入】\n';
+  ctx += '1. 用户本轮表达了排斥/推迟/剔除/暂不考虑的语义 → writeActions 写入对应 section 跳过标注。\n';
+  ctx += '   不限具体用词。用户说"暂且、可能、目前、现在不太想要这个功能、日后再说、不需要、不考虑、不做、跳过"等，都视为跳过意图。看语义不看词。\n';
+  ctx += '   写入格式示例："N/A：本期不考虑，用户表示日后再说。" 或 "N/A：用户声明不需要。"\n';
+  ctx += '2. 发出本轮回复前自检你刚列的缺口章节：其中有没有前几轮用户已说过不需要的？\n';
+  ctx += '   有 → 先补写 N/A 标注的 writeActions，再为剩余的缺口提问。不写 = 下轮又是空白 = 你又追问——这是你自己的错误。\n';
+  ctx += '\n';
+  ctx += '【writeActions 规则】\n';
+  ctx += '1. 用户确认的每条信息 → 写 writeActions。N/A 跳过意图 → 写 writeActions。writeActions 不得为空。\n';
+  ctx += '2. 禁止包含模板占位符（如{项目名称}、{编号}等）。禁止包含其他 section 的 ## 标题。\n';
+  ctx += '3. 只写 targetSection 指定的那个段落的内容，不要越界写其他 section。\n';
+  ctx += '4. 用户选了选项A"30次用完锁定"，写成"猜错上限30次，用完永久锁定"，不是"用户选择了A"。\n';
+  ctx += '5. 禁止延迟写入、禁止跳过。';
   if (stage === 'collecting') ctx += '\n\n当前阶段: 收集中。请围绕缺口继续追问。';
   if (stage === 'refining') ctx += '\n\n当前阶段: 精进中。方向已明确。';
   if (stage === 'confirmed') ctx += '\n\n当前阶段: 已确认。可要求 locklock 锁定。';
@@ -730,7 +740,13 @@ async function executeProtocol(store: any, protocol: any) {
     if (activeId) store.setLight(activeId, uiActions.setLight);
   }
   if (uiActions.lockCurrentDocument) {
-    store.locklockVersion(store.activeVersionId);
+    // Find next A-class document by chain order, then set lockAdvance for user confirmation
+    const aGroup = store.files.find(f => f.id === 'group:a');
+    const aChildren = aGroup?.children ?? [];
+    const currentIdx = aChildren.findIndex(f => f.id === store.activeFileId);
+    const nextChild = currentIdx >= 0 && currentIdx < aChildren.length - 1 ? aChildren[currentIdx + 1] : null;
+    store.setLockAdvance({ fileId: store.activeFileId, nextFileId: nextChild?.id || '' });
+    return;
   }
   if (protocol.shouldAdvance && protocol.suggestedNextDocument) {
     const nextFileId = findFileId(store.files, protocol.suggestedNextDocument);
@@ -749,32 +765,6 @@ function findFileId(files: FileItem[], name: string): string | null {
   }
   return null;
 }
-
-function getRequiredSections(docName: string): string[] {
-  if (docName.includes('prd')) return ['背景与概述', '问题定义', '目标', '范围', '功能需求', '成功指标', '验收标准'];
-  if (docName.includes('features')) return ['功能总览', '功能清单', '功能依赖图', '版本与范围说明', '验收标准'];
-  if (docName.includes('rules')) return ['技术栈与版本', '架构约束', '命名规范', '状态管理规范', '测试规范', '不允许项', '完整性交付标准'];
-  if (docName.includes('rfc') && !docName.includes('prd')) return ['目标', '范围', '背景与问题', '设计方案', '依赖关系', '验收标准', '测试策略'];
-  if (docName.includes('implementation')) return ['实施目标', '变更计划', '关键实现说明', '自检结果'];
-  if (docName.includes('code-review')) return ['审查结论', '问题清单', '风险分析', '验收对照'];
-  if (docName.includes('testing')) return ['测试目标', '测试范围', '异常场景', '验收标准'];
-  if (docName.includes('change-management')) return ['变更概述', '变更内容', '影响分析', '决策记录', '后续动作'];
-  return [];
-}
-
-function evaluateLight(content: string, docName?: string): 'gray' | 'yellow' | 'green' {
-  return calcDocumentProgress(content, docName ?? '', false, 'a').light;
-}
-
-export interface DocumentProgress {
-  percent: number;
-  light: 'gray' | 'yellow' | 'green';
-  label: string;
-  missingSections: string[];
-  hasPlaceholder: boolean;
-  reason: string;
-}
-
 
 // ── Heading parser ──
 
@@ -811,147 +801,14 @@ function extractSectionBody(content: string, headings: HeadingNode[], sectionTit
   const normalizedTarget = normalizeHeadingText(sectionTitle);
   const match = resolveHeadingMatch(headings, normalizedTarget);
   if (!match) return '';
-  return match.node.bodyLines.join('\n').trim();
-}
-
-function isMeaningfulSectionBody(body: string): boolean {
-  if (!body) return false;
-  const lines = body.split('\n').map(l => l.trim()).filter(Boolean);
-  const cleanedLines = lines.filter(line => {
-    if (/^#{1,6}\s+/.test(line)) return false;
-    if (/^\{[^}]+\}$/.test(line)) return false;
-    if (/^[-*+]\s*(xxx|TODO|TBD|待确认|未定|暂存|未确认|请填写|待补充|示例|…|\.{2,})$/i.test(line)) return false;
-    if (/^[-*+]\s*(项目背景|当前问题|现状痛点|功能说明|验收标准|技术栈|测试规范|业务目标|产品目标|工程目标)$/i.test(line)) return false;
-    if (/^[|\-\s:]+$/.test(line)) return false;
-    return true;
-  });
-  const joined = cleanedLines.join('\n').replace(/^[-*+]\s+.{1,15}$/gm, '').trim();
-  if (joined.length < 30) return false;
-  const hasSentenceLike = /[。！？]/.test(joined) || /[A-Za-z0-9]{8,}/.test(joined) || /[\u4e00-\u9fa5]{12,}/.test(joined);
-  if (!hasSentenceLike) return false;
-  const meaningful = cleanedLines.filter(line => {
-    if (/^[-*+]\s+/.test(line)) { const c = line.replace(/^[-*+]\s+/, '').trim(); return c.length > 15 && !/^(项目背景|当前问题|现状痛点|功能说明|验收标准|技术栈|测试规范|业务目标|产品目标|工程目标)$/i.test(c); }
-    return line.length >= 15;
-  });
-  return meaningful.length > 0;
-}
-
-function countTemplateSignals(content: string): number {
-  let count = 0;
-  if (/{[^}]+}/.test(content)) count += 2;
-  if (/TODO|TBD/i.test(content)) count += 2;
-  if (/待确认|未定|暂存|未确认|请填写|待补充|这里填写|示例/i.test(content)) count += 2;
-  const sk1 = content.match(/^[-*+]\s*(xxx|…|\.{2,}|请填写|待补充|示例)$/gim) || [];
-  if (sk1.length > 0) count += 3;
-  const sk2 = content.match(/^[-*+]\s*(项目背景|当前问题|现状痛点|功能说明|验收标准|技术栈|测试规范|业务目标|产品目标|工程目标)$/gim) || [];
-  if (sk2.length > 0) count += 3;
-  const listLines = content.match(/^\s*[-*+]\s+.+$/gm) || [];
-  if (listLines.length >= 10) count += 1;
-  return count;
-}
-
-type DocumentRule = {
-  yellowMinCompleted: number;
-  greenMinCompleted: number;
-  minBodyForGreen: number;
-  minBodyForYellow: number;
-};
-
-function getDocumentRule(docName: string): DocumentRule {
-  const total = getRequiredSections(docName).length || 1;
-  if (docName.includes('prd'))       return { yellowMinCompleted: Math.ceil(total*0.7), greenMinCompleted: total, minBodyForGreen: 200, minBodyForYellow: 100 };
-  if (docName.includes('features'))  return { yellowMinCompleted: Math.ceil(total*0.6), greenMinCompleted: total, minBodyForGreen: 180, minBodyForYellow: 90 };
-  if (docName.includes('rules'))     return { yellowMinCompleted: Math.ceil(total*0.6), greenMinCompleted: total, minBodyForGreen: 200, minBodyForYellow: 100 };
-  if (docName.includes('rfc') && !docName.includes('prd')) return { yellowMinCompleted: Math.ceil(total*0.6), greenMinCompleted: total, minBodyForGreen: 180, minBodyForYellow: 80 };
-  if (docName.includes('implementation')) return { yellowMinCompleted: Math.ceil(total*0.5), greenMinCompleted: total, minBodyForGreen: 150, minBodyForYellow: 70 };
-  if (docName.includes('code-review')) return { yellowMinCompleted: Math.ceil(total*0.5), greenMinCompleted: total, minBodyForGreen: 120, minBodyForYellow: 60 };
-  if (docName.includes('testing'))  return { yellowMinCompleted: Math.ceil(total*0.5), greenMinCompleted: total, minBodyForGreen: 140, minBodyForYellow: 70 };
-  if (docName.includes('change-management')) return { yellowMinCompleted: Math.ceil(total*0.5), greenMinCompleted: total, minBodyForGreen: 130, minBodyForYellow: 60 };
-  return { yellowMinCompleted: Math.ceil(total*0.5), greenMinCompleted: total, minBodyForGreen: 100, minBodyForYellow: 50 };
-}
-
-function getMeaningfulTextLength(content: string): number {
-  return content
-    .replace(/^#{1,6}\s+.+$/gm, '')
-    .replace(/\{[^}]+\}/g, '')
-    .replace(/\bTODO\b|\bTBD\b|待确认|未定|暂存|未确认|请填写|待补充|示例/gi, '')
-    .replace(/^[-*+]\s*(xxx|…|\.{2,}|请填写|待补充|示例)$/gim, '')
-    .replace(/^[-*+]\s*(项目背景|当前问题|现状痛点|功能说明|验收标准|技术栈|测试规范|业务目标|产品目标|工程目标)$/gim, '')
-    .replace(/^[-*+]\s+.{1,15}$/gm, '')
-    .replace(/^[|\-\s:]+$/gm, '')
-    .trim().length;
-}
-
-function analyzeDocument(content: string, docName: string) {
-  const required = getRequiredSections(docName);
-  const headings = parseAllHeadings(content);
-  const sectionResults = required.map(section => {
-    const body = extractSectionBody(content, headings, section);
-    return { section, body, complete: isMeaningfulSectionBody(body) };
-  });
-  const missingSections = sectionResults.filter(r => !r.complete).map(r => r.section);
-  const completedCount = sectionResults.filter(r => r.complete).length;
-  const hasPlaceholder = /{[^}]+}|TODO|TBD|待确认|未定|暂存|未确认|请填写|待补充/i.test(content);
-  const meaningfulTextLength = getMeaningfulTextLength(content);
-  const templateSignalCount = countTemplateSignals(content);
-  const skeletonLineCount = content.split('\n').filter(line => {
-    const t = line.trim();
-    return /^[-*+]\s*(xxx|…|\.{2,}|请填写|待补充|示例)$/i.test(t) ||
-           /^[-*+]\s*(项目背景|当前问题|现状痛点|功能说明|验收标准|技术栈|测试规范|业务目标|产品目标|工程目标)$/i.test(t) ||
-           /^\{[^}]+\}$/.test(t);
-  }).length;
-  const isPureTemplate = completedCount === 0 && meaningfulTextLength < 60 && templateSignalCount >= 3 && skeletonLineCount >= 3;
-  return { required, missingSections, completedCount, hasPlaceholder, meaningfulTextLength, templateSignalCount, headingCount: headings.length, skeletonLineCount, isPureTemplate };
-}
-
-export function calcDocumentProgress(content: string, docName: string, locked: boolean, category?: string): DocumentProgress {
-  if (locked) return { percent: 100, light: 'green', label: '已锁定', missingSections: [], hasPlaceholder: false, reason: '已锁定' };
-  if (category && category !== 'a') return { percent: 100, light: 'green', label: '', missingSections: [], hasPlaceholder: false, reason: '' };
-
-  const info = analyzeDocument(content, docName);
-  const rule = getDocumentRule(docName);
-
-  if (info.isPureTemplate) {
-    return { percent: 0, light: 'gray', label: '', missingSections: info.missingSections, hasPlaceholder: true, reason: '纯模板，无实质内容' };
+  // Include bodyLines of matched node AND its immediate children (H3 under H2 etc.)
+  const idx = headings.indexOf(match.node);
+  const parts = [match.node.bodyLines.join('\n')];
+  for (let i = idx + 1; i < headings.length; i++) {
+    if (headings[i].level <= match.node.level) break;
+    parts.push(headings[i].bodyLines.join('\n'));
   }
-  if (info.completedCount === 0 && info.meaningfulTextLength < 60) {
-    return { percent: 0, light: 'gray', label: '', missingSections: info.missingSections, hasPlaceholder: true, reason: '纯模板，无实质内容' };
-  }
-
-  const reqCount = info.required.length || 1;
-  let percent = Math.round(info.completedCount / reqCount * 70);
-  if (info.meaningfulTextLength >= 200) percent += 12;
-  else if (info.meaningfulTextLength >= 80) percent += 8;
-  else if (info.meaningfulTextLength >= 30) percent += 4;
-  if (info.headingCount >= 5) percent += 3;
-  else if (info.headingCount >= 3) percent += 2;
-  if (!info.hasPlaceholder) percent += 8;
-  if (info.meaningfulTextLength >= 50) percent += 5;
-  if (info.skeletonLineCount >= 8) percent -= 12;
-  else if (info.skeletonLineCount >= 5) percent -= 6;
-  else if (info.skeletonLineCount >= 3) percent -= 3;
-  if (info.completedCount === 0) percent = Math.min(percent, 20);
-  else if (info.completedCount <= 2) percent = Math.min(percent, 55);
-  percent = Math.max(0, Math.min(100, percent));
-
-  let light: 'gray' | 'yellow' | 'green' = 'gray';
-  const isComplete = info.completedCount >= rule.greenMinCompleted && !info.hasPlaceholder && info.meaningfulTextLength >= rule.minBodyForGreen && info.templateSignalCount < 3;
-  const isNearly = info.completedCount >= rule.yellowMinCompleted && info.meaningfulTextLength >= rule.minBodyForYellow && !info.hasPlaceholder;
-
-  if (isComplete) { light = 'green'; percent = Math.max(percent, 95); }
-  else if (isNearly) { light = 'yellow'; percent = Math.max(percent, 70); }
-  else { light = 'gray'; percent = Math.min(percent, 69); }
-
-  const reason = light === 'green' ? '已完成' :
-    light === 'yellow' ? '接近完成，还缺 ' + info.missingSections.length + ' 个章节' :
-    info.completedCount === 0 ? '章节均未完成' :
-    info.hasPlaceholder ? '进行中，存在占位符' :
-    info.skeletonLineCount >= 5 ? '仍为模板骨架' :
-    '内容过短或信息不足';
-
-  return { percent, light,
-    label: '',
-    missingSections: info.missingSections, hasPlaceholder: info.hasPlaceholder, reason };
+  return parts.join('\n').trim();
 }
 
 async function applyWriteActions(actions: any[], activeVersionId: string, currentContent: string): Promise<string> {
@@ -1404,7 +1261,47 @@ applyThemeMode('dark');
 applyAccentColor('#7c3aed');
 applyThemeMode('dark');
 
-export const useStore = create<AppState>((set, get) => ({
+
+async function getUpstreamContent(files: FileItem[], activeFileId: string, verId: string, allUpstream: boolean): Promise<string> {
+  const aGroup = files.find(f => f.id === 'group:a');
+  const aChildren = aGroup?.children ?? [];
+  const currentIdx = aChildren.findIndex(f => f.id === activeFileId);
+  if (currentIdx <= 0) return '';
+  const upstreamFiles = allUpstream ? aChildren.slice(0, currentIdx) : [aChildren[currentIdx - 1]];
+  const parts: string[] = [];
+  for (const f of upstreamFiles) {
+    const path = 'letsgo/versions/' + verId + '/' + f.id;
+    try {
+      const r = await fetch('/api/files?path=' + encodeURIComponent(path));
+      const data = await r.json();
+      if (data.lines) {
+        parts.push('【上游文档：' + f.name + '】\n' + data.lines.map((l: any) => l.text).join('\n'));
+      }
+    } catch (e) { /* file may not exist yet */ }
+  }
+  return parts.join('\n\n');
+}
+
+async function getAllAContent(files: FileItem[], verId: string): Promise<string> {
+  const aGroup = files.find(f => f.id === 'group:a');
+  const aChildren = aGroup?.children ?? [];
+  const parts: string[] = [];
+  for (const f of aChildren) {
+    const path = 'letsgo/versions/' + verId + '/' + f.id;
+    try {
+      const r = await fetch('/api/files?path=' + encodeURIComponent(path));
+      const data = await r.json();
+      if (data.lines) {
+        parts.push('【' + f.name + '】\n' + data.lines.map((l: any) => l.text).join('\n'));
+      }
+    } catch (e) { /* file may not exist yet */ }
+  }
+  return parts.join('\n\n');
+}
+
+export const useStore = create<AppState>()(
+  persist(
+    (set, get) => ({
   theme: 'dark',
   accent: '#7c3aed',
   versions: [
@@ -1425,6 +1322,9 @@ export const useStore = create<AppState>((set, get) => ({
   apiEndpoint: 'https://api.deepseek.com/v1/chat/completions',
   isLoading: false,
   questionCount: 3,
+  lockAdvance: null,
+  retryPrompt: null,
+  fileMessages: {},
   pendingAction: null,
   questionGen: null,
 
@@ -1486,12 +1386,20 @@ export const useStore = create<AppState>((set, get) => ({
     return; // selectVersion returns void initially, async work continues in background
   },
 
+
+
+
   selectFile: (id) => {
     set({ pendingAction: null });
     const file = findFileInTree(get().files, id);
     if (!file) return;
-    if (file.type === 'folder' && file.children) return; // group folder, handled by UI expand/collapse
-    set({ activeFileId: id });
+    if (file.type === 'folder' && file.children) return;
+    const { activeFileId: oldId, messages: oldMsgs, fileMessages } = get();
+    // Save current messages to old file's slot
+    const updatedFileMessages = { ...fileMessages, [oldId]: oldMsgs };
+    // Restore messages for new file (or empty array)
+    const newMessages = updatedFileMessages[id] || [{ id: 'm1', role: 'assistant' as const, content: '欢迎使用 AI 项目计划生成系统。请输入你的想法或目标，我来帮你逐步收敛为可执行的计划。', timestamp: '10:00' }];
+    set({ activeFileId: id, fileMessages: updatedFileMessages, messages: newMessages });
     if (file.type === 'folder') return;
     // Build path from id (which preserves full relative path like a/01-prd.md)
     const verId = get().activeVersionId;
@@ -1504,17 +1412,6 @@ export const useStore = create<AppState>((set, get) => ({
         if (data.lines) {
           const lines = data.lines.map((l: any, i: number) => ({ ...l, active: i === 0 }));
           set({ lines, activeLineId: lines[0]?.id ?? '' });
-          // Auto-evaluate light for A group files (skip if manually locked green)
-          if (file.category === 'a' && !(file.lockedLight && file.light === 'green')) {
-            const content = lines.map((l: any) => l.text).join('\n');
-            const light = evaluateLight(content, file.name);
-            set((s) => ({
-              files: s.files.map((g) => {
-                if (!g.children) return g;
-                return { ...g, children: g.children.map((f) => f.id === id ? { ...f, light } : f) };
-              }),
-            }));
-          }
         }
       })
       .catch(() => {});
@@ -1526,6 +1423,7 @@ export const useStore = create<AppState>((set, get) => ({
   })),
 
   setInputText: (text) => set({ inputText: text }),
+
 
   sendMessage: async () => {
     const { inputText, isReadOnly, apiKey, isLoading, activeFileId, files } = get();
@@ -1540,7 +1438,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
       return null;
     })();
-    if (activeFile?.light === 'green' && activeFile?.lockedLight) {
+    if (activeFile?.light === 'green') {
       set((s) => ({
         messages: [...s.messages, { id: 'm' + (msgCounter++), role: 'assistant' as const,
           content: '当前文件已锁定为绿灯，不再追问。请切换到下一文档或派生新版本。', timestamp: now() }],
@@ -1566,8 +1464,18 @@ export const useStore = create<AppState>((set, get) => ({
 
     try {
       const questionCount = get().questionCount;
-      // Build current document snapshot from editor lines
-      const snapshot = get().lines.map(l => l.text).join('\n');
+      // Detect inputType and inject upstream content
+      const isChange = text.includes('【inputType=change】');
+      let upstreamContent = '';
+      if (isChange) {
+        upstreamContent = await getAllAContent(get().files, get().activeVersionId);
+      } else {
+        upstreamContent = await getUpstreamContent(get().files, get().activeFileId, get().activeVersionId, false);
+      }
+      const rawSnapshot = get().lines.map(l => l.text).join('\n');
+      const snapshot = upstreamContent
+        ? '【上游文档内容】\n' + upstreamContent + '\n\n【当前文档内容】\n' + rawSnapshot
+        : rawSnapshot;
       const { content: reply, usage: firstUsage } = await callAI(apiKey, get().apiEndpoint, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot);
       const parsedStage = parseStage(reply);
 
@@ -1676,10 +1584,15 @@ export const useStore = create<AppState>((set, get) => ({
         }
       }
     } catch (e: any) {
-      set((s) => ({
-        messages: [...s.messages, { id: 'm' + (msgCounter++), role: 'assistant' as const, content: 'API 调用失败: ' + e.message, timestamp: now() }],
+      // Store retry info so UI can show a retry bar on reload
+      const lastUserMsg = [...get().messages].reverse().find(m => m.role === 'user');
+      const retryText = lastUserMsg
+        ? lastUserMsg.content.replace(/【inputType=(?:answer|change)】\n/, '').replace(/【请在你的回复末尾输出.*?】\n\n/, '')
+        : '';
+      set({
+        retryPrompt: retryText,
         isLoading: false,
-      }));
+      });
     }
   },
 
@@ -1869,11 +1782,8 @@ export const useStore = create<AppState>((set, get) => ({
           children: g.children.map((f) => {
             if (f.id !== fileId) return f;
             const current = f.light ?? 'gray';
-            let next: 'gray' | 'green' | 'yellow';
-            if (current === 'yellow') next = 'green';
-            else if (current === 'green') next = 'gray';
-            else next = 'green';
-            return { ...f, light: next, lockedLight: next === 'green' };
+            const next: 'gray' | 'green' = current === 'green' ? 'gray' : 'green';
+            return { ...f, light: next };
           }),
         };
       }),
@@ -1888,11 +1798,106 @@ export const useStore = create<AppState>((set, get) => ({
           ...g,
           children: g.children.map((f) => {
             if (f.id !== fileId) return f;
-            return { ...f, light, lockedLight: light === 'green' };
+            return { ...f, light };
           }),
         };
       }),
     }));
+  },
+
+  setLockAdvance: (info) => set({ lockAdvance: info }),
+
+  confirmLockAdvance: async () => {
+    const { lockAdvance, apiKey, apiEndpoint, questionCount, versions, activeVersionId, files } = get();
+    if (!lockAdvance) return;
+    // Lock current file
+    get().setLight(lockAdvance.fileId, 'green');
+
+    if (!lockAdvance.nextFileId) {
+      set({ lockAdvance: null });
+      return;
+    }
+
+    // Fetch the next document content
+    const verId = activeVersionId;
+    const relPath = 'letsgo/versions/' + verId + '/' + lockAdvance.nextFileId;
+    let lines: any[] = [];
+    try {
+      const r = await fetch('/api/files?path=' + encodeURIComponent(relPath));
+      const data = await r.json();
+      if (data.lines) lines = data.lines.map((l: any, i: number) => ({ ...l, active: i === 0 }));
+    } catch (e) { /* ignore */ }
+
+    const rawSnapshot = lines.map((l: any) => l.text).join('\n');
+    const upstreamContent = await getUpstreamContent(files, lockAdvance.nextFileId, verId, false);
+    const snapshot = upstreamContent
+      ? '【上游文档内容】\n' + upstreamContent + '\n\n【当前文档内容】\n' + rawSnapshot
+      : rawSnapshot;
+
+    // Switch to new file
+    set({
+      activeFileId: lockAdvance.nextFileId,
+      lines,
+      activeLineId: lines[0]?.id || '',
+      messages: [],
+      isLoading: true,
+      lockAdvance: null,
+    });
+
+    // Call AI directly with empty user message to trigger first round of questions
+    try {
+      const userMsg: ChatMessage = { id: 'm' + (msgCounter++), role: 'user', content: '请开始分析当前文档并提出问题。', timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) };
+      const { content: reply, usage } = await callAI(apiKey, apiEndpoint, [userMsg], versions, activeVersionId, questionCount, files, lockAdvance.nextFileId, snapshot);
+      const visibleText = reply.replace(/```json[\s\S]*?```/g, '').trim() || reply;
+      const protocol = extractProtocol(reply);
+      set((s) => ({
+        messages: [...s.messages, userMsg, {
+          id: 'm' + (msgCounter++), role: 'assistant' as const,
+          content: visibleText, timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
+          raw: reply, protocol, usage: usage ?? undefined,
+        }],
+        isLoading: false,
+      }));
+      if (protocol) {
+        setTimeout(() => {
+          executeProtocol(get(), protocol).catch((err: any) => console.warn('[autoStart] protocol error', err));
+        }, 100);
+      }
+    } catch (e: any) {
+      console.error('[autoStart] 失败:', e?.message || e, 'apiKey=', apiKey ? 'configured' : 'empty');
+      set((s) => ({
+        messages: [...s.messages, { id: 'm' + (msgCounter++), role: 'assistant' as const, content: '自动启动失败，请手动输入。', timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }],
+        isLoading: false,
+      }));
+    }
+  },
+
+  cancelLockAdvance: () => set({ lockAdvance: null }),
+
+  clearRetryPrompt: () => set({ retryPrompt: null }),
+
+  retrySend: () => {
+    const { retryPrompt, messages } = get();
+    if (!retryPrompt) return;
+    // Remove last user message (the failed one)
+    const msgs = [...messages];
+    if (msgs.length > 0 && msgs[msgs.length - 1].role === 'user') {
+      msgs.pop();
+    }
+    set({ messages: msgs, inputText: retryPrompt, retryPrompt: null });
+    setTimeout(() => get().sendMessage(), 50);
+  },
+
+  clearMessages: () => {
+    const welcome = [{ id: 'm1', role: 'assistant' as const, content: '欢迎使用 AI 项目计划生成系统。请输入你的想法或目标，我来帮你逐步收敛为可执行的计划。', timestamp: '10:00' }];
+    const { activeFileId, fileMessages } = get();
+    set({
+      messages: welcome,
+      fileMessages: { ...fileMessages, [activeFileId]: welcome },
+      retryPrompt: null,
+      lockAdvance: null,
+      inputText: '',
+    });
   },
 
   resetFile: async (fileId) => {
@@ -2035,4 +2040,38 @@ export const useStore = create<AppState>((set, get) => ({
       if (nextId) get().selectVersion(nextId);
     } catch { alert('删除版本失败'); }
   },
-}));
+  }),
+  {
+    name: 'alittlebit-storage',
+    partialize: (state: AppState) => ({
+      theme: state.theme,
+      accent: state.accent,
+      apiKey: state.apiKey,
+      questionCount: state.questionCount,
+      messages: state.messages,
+      fileMessages: state.fileMessages,
+      versions: state.versions,
+      files: state.files,
+      activeVersionId: state.activeVersionId,
+      activeFileId: state.activeFileId,
+      lockAdvance: state.lockAdvance,
+      retryPrompt: state.retryPrompt,
+      inputText: state.inputText,
+    }),
+    onRehydrateStorage: () => {
+      return (state) => {
+        if (state) {
+          applyAccentColor(state.accent);
+          applyThemeMode(state.theme as ThemeMode);
+          // Restore msgCounter from persisted messages to avoid key collision
+          let maxId = 0;
+          for (const m of state.messages) {
+            const num = parseInt(m.id.slice(1));
+            if (num > maxId) maxId = num;
+          }
+          if (maxId >= msgCounter) msgCounter = maxId + 1;
+        }
+      };
+    },
+  },
+));

@@ -9,17 +9,19 @@ export default function DocumentProgressBar() {
 
   const progress: DocumentProgress | null = useMemo(() => {
     if (!activeFileId) return null;
-    let file: { id: string; name: string; category?: string; lockedLight?: boolean } | undefined;
+    let file: { id: string; name: string; category?: string; light?: string } | undefined;
     for (const g of files) {
       if (g.id === activeFileId) { file = g; break; }
       if (g.children) { file = g.children.find(c => c.id === activeFileId); if (file) break; }
     }
     if (!file) return null;
     const content = lines.map(l => l.text).join('\n');
-    return calcDocumentProgress(content, file.name, !!file.lockedLight, file.category);
+    return calcDocumentProgress(content, file.name, file.light === 'green', file.category);
   }, [lines, files, activeFileId]);
 
-  if (!progress || (!progress.label && !progress.reason)) return null;
+  if (!progress) return null;
+
+  const total = progress.percent >= 100 ? '✓' : `${progress.missingSections.length} 章节待完成`;
 
   return (
     <div className="doc-progress-bar">
@@ -27,7 +29,7 @@ export default function DocumentProgressBar() {
         <div className="progress-fill" style={{ width: `${progress.percent}%` }} />
       </div>
       <span className="progress-pct">{progress.percent}%</span>
-      {progress.reason && <span className="progress-label">{progress.reason}</span>}
+      <span className="progress-label">{total}</span>
     </div>
   );
 }

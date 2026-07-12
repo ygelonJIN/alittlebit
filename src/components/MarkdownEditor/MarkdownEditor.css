@@ -21,7 +21,7 @@
 .editor-mode-bar {
   position: absolute;
   top: 8px;
-  right: 10px;
+  right: 16px;
   display: flex;
   gap: 0;
   z-index: 10;
@@ -30,10 +30,10 @@
 .editor-mode-btn {
   border: none;
   border-left: 2px solid transparent;
-  padding: 4px 10px;
+  padding: 8px 20px;
   background: var(--bg-panel);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, color 0.15s;

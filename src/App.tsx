@@ -5,7 +5,6 @@ import ChatPanel from './components/ChatPanel/ChatPanel';
 import StatusBar from './components/StatusBar/StatusBar';
 import SettingsModal from './components/SettingsModal/SettingsModal';
 import { useStore } from './store';
-import DocumentProgressBar from './components/DocumentProgressBar/DocumentProgressBar';
 import './App.css';
 
 export default function App() {
@@ -100,7 +99,6 @@ export default function App() {
             <span className="dot red" /><span className="dot yellow" /><span className="dot green" />
           </div>
           <div className="title">AI 项目计划生成系统</div>
-          <DocumentProgressBar />
           <div className="titlebar-right">
             <div className="titlebar-dropdown">
               <button className="titlebar-settings" onClick={() => setShowQDropdown(!showQDropdown)}>单次提问数量 {questionCount}</button>
