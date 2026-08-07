@@ -5,6 +5,7 @@ import ChatPanel from './components/ChatPanel/ChatPanel';
 import StatusBar from './components/StatusBar/StatusBar';
 import SettingsModal from './components/SettingsModal/SettingsModal';
 import { useStore } from './store';
+import Toast from './components/Toast/Toast';
 import './App.css';
 
 export default function App() {
@@ -167,6 +168,7 @@ export default function App() {
         <StatusBar isReadOnly={isReadOnly} lineNumber={activeLine?.lineNumber} colNumber={cursorCol} totalLines={lines.length} />
       </div>
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      <Toast />
     </div>
   );
 }

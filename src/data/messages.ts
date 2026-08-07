@@ -14,6 +14,7 @@ export interface ChatMessage {
     finalStatus: 'success' | 'failed';
     warnings: string;
   };
+  attachments?: Array<{ name: string; size: number }>;
 }
 
 export const messages: ChatMessage[] = [

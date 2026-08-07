@@ -15,10 +15,13 @@ export default function SettingsModal({ onClose }: Props) {
   const setApiEndpoint = useStore((s) => s.setApiEndpoint);
   const setTheme = useStore((s) => s.setTheme);
   const setAccent = useStore((s) => s.setAccent);
+  const model = useStore((s) => s.model);
+  const setModel = useStore((s) => s.setModel);
   const [key, setKey] = useState(apiKey);
   const [endpoint, setEndpoint] = useState(apiEndpoint);
   const [themeValue, setThemeValue] = useState(theme);
   const [accentValue, setAccentValue] = useState(accent);
+  const [modelValue, setModelValue] = useState(model);
   const colorInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -26,11 +29,13 @@ export default function SettingsModal({ onClose }: Props) {
     setEndpoint(apiEndpoint);
     setThemeValue(theme);
     setAccentValue(accent);
-  }, [apiKey, apiEndpoint, theme, accent]);
+    setModelValue(model);
+  }, [apiKey, apiEndpoint, theme, accent, model]);
 
   const handleSave = () => {
     setApiKey(key.trim());
     setApiEndpoint(endpoint.trim() || 'https://api.deepseek.com/v1/chat/completions');
+    setModel(modelValue.trim() || 'deepseek-chat');
     setTheme(themeValue);
     setAccent(accentValue);
     onClose();
@@ -78,6 +83,15 @@ export default function SettingsModal({ onClose }: Props) {
               value={endpoint}
               onChange={(e) => setEndpoint(e.target.value)}
               placeholder="https://api.deepseek.com/v1/chat/completions"
+            />
+          </div>
+          <div className="settings-field">
+            <label className="settings-label">Model</label>
+            <input
+              className="settings-input"
+              value={modelValue}
+              onChange={(e) => setModelValue(e.target.value)}
+              placeholder="mimo-v2.5-pro"
             />
           </div>
           <div className="settings-field">

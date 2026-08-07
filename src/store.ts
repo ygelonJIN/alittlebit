@@ -5,6 +5,7 @@ import type { FileItem } from './data/files';
 import type { EditorLine } from './data/editorLines';
 import type { ChatMessage } from './data/messages';
 import { applyAccentColor, applyThemeMode, type ThemeMode } from './theme';
+import { showToast } from './components/Toast/Toast';
 
 const linesV1: EditorLine[] = [
   { id: 'v1L1', lineNumber: 1, text: '# AI 项目计划生成系统 v1.0', type: 'heading' },
@@ -47,12 +48,16 @@ export interface AppState {
   selectLine: (id: string) => void;
   setInputText: (text: string) => void;
   sendMessage: () => Promise<void>;
+  pendingAttachments?: Array<{ name: string; size: number }>;
+  setPendingAttachments: (files: Array<{ name: string; size: number }> | undefined) => void;
   locklockVersion: (id: string) => void;
   renameVersion: (id: string, name: string) => void;
   createNextVersion: (id: string) => void;
   setFiles: (files: FileItem[]) => void;
   setEditorLines: (lines: EditorLine[]) => void;
   setApiKey: (key: string) => void;
+  model: string;
+  setModel: (model: string) => void;
   setApiEndpoint: (endpoint: string) => void;
   setQuestionCount: (n: number) => void;
   confirmLockAdvance: () => Promise<void>;
@@ -69,6 +74,8 @@ export interface AppState {
   pendingAction: { id: string; action: 'reset' | 'delete' | 'deleteVer' } | null;
   setPendingAction: (pa: { id: string; action: 'reset' | 'delete' | 'deleteVer' } | null) => void;
   confirmAndExec: (id: string, action: 'reset' | 'delete' | 'deleteVer') => void;
+  upstreamSelection: string[] | null;
+  setUpstreamSelection: (ids: string[] | null) => void;
   questionGen: QuestionGenState | null;
 }
 
@@ -173,7 +180,7 @@ const SYSTEM_PROMPT = [
   '==================================================',
   '你必须看当前文档快照的实际内容来决定追问，不按固定模板机械追问。',
   '内容为空 + 没有 N/A 标注的章节 → 追问。已填内容、已有 N/A 标注的章节 → 跳过。不确定是否需要 → 追问用户确认。',
-  'PRD 阶段优先补：背景、目标、范围、用户、场景、功能、非功能、成功指标',
+  'PRD 阶段优先补：项目背景与问题定义、竞品与市场分析、目标、核心场景、技术架构与技术选型、技术难点与解决方案',
   'Features 阶段优先补：功能编号、分类、优先级、验收标准、依赖、边界',
   'Rules 阶段优先补：技术栈、命名、目录、状态管理、API、测试、安全',
   'RFC 阶段优先补：方案、依赖、文件变更、接口、状态、错误处理、测试策略',
@@ -199,8 +206,8 @@ const SYSTEM_PROMPT = [
   '==================================================',
   '八、A 类文档必备要求',
   '==================================================',
-  '所有 A 类文档都必须至少具备：文档标题 / 文档编号 / 版本号 / 状态 / 创建时间 / 来源 / 关联上游文档 / 负责人 / 验收标准 / 版本治理衔接',
-  'A 类文档末尾必须增加"版本治理衔接"节：是否允许继续推进 / 是否有未确认项 / 是否有暂存项 / 是否已生成确认记录 / 是否已同步差异文件 / 是否已更新索引 / 是否已生成版本摘要 / 是否已进入锁定状态',
+  '所有 A 类文档都必须至少具备：文档状态 / 责任人 / 创建/更新时间 / 一句话定位',
+  'A 类文档末尾不需要版本治理衔接节，文档状态在文档信息中体现。',
   '',
   '==================================================',
   '九、输出格式要求',
@@ -335,7 +342,25 @@ const SYSTEM_PROMPT = [
   '- 每轮必带协议块，不管上下文是什么。用户选选项、简短回答、闲聊、任何情况都必须输出。',
   '- writeActions.content 必须是具体可写入的文档正文，不是对话摘要，不是复述问题，不要写"用户选择了A"。',
   '- 例如用户选了A选项"30次用完永久锁定"，你应该写：content: "猜错次数上限为30次，用完永久锁定，无法恢复。"',
-  '- targetSection 用文档中的原标题，如"2. 背景与概述""3. 问题定义""4. 目标"',
+  '- targetSection 用文档中的原标题，如"2. 项目背景与问题定义""3. 竞品与市场分析""4. 目标与项目范围"',
+  '- 【关键写入协议：writeActions 规范】',
+  '- 当你生成 writeActions 时，targetSection 字段的值必须【严格匹配】以下 8 个 H2 标题之一。',
+  '- 禁止更改字词、标点、编号或顺序！自创标题将直接导致系统崩溃。',
+  '-',
+  '- 【合法 Section 白名单（枚举）】：',
+  '- 1. "1. 文档信息"',
+  '- 2. "2. 项目背景与问题定义"',
+  '- 3. "3. 竞品与市场分析"',
+  '- 4. "4. 目标"',
+  '- 5. "5. 核心场景"',
+  '- 6. "6. 技术架构与技术选型"',
+  '- 7. "7. 技术难点与解决方案"',
+  '-',
+  '- 【JSON 字段匹配示例】：',
+  '- CORRECT: { "targetSection": "6. 技术架构与技术选型", "content": "..." }',
+  '- WRONG:   { "targetSection": "技术栈概要", "content": "..." }  <-- 严禁自创名称！',
+  '- WRONG:   { "targetSection": "6.技术架构与选型", "content": "..." } <-- 严禁删减字词！',
+
   '- operation 推荐使用 upsert；同一 section 多轮对话应增量更新而不是整文件覆盖',
   '- 不确定内容走临时暂存，不得进 writeActions',
   '- questions 最多 5 个',
@@ -469,15 +494,63 @@ function resolveHeadingMatch(headings: HeadingNode[], targetTitle: string): { no
 
   const targetTokens = normalizedTarget.split(' ').filter(Boolean);
   if (targetTokens.length === 0) return null;
+  
+  // 去除数字编号后的匹配（如 "6. 技术架构" → "技术架构"）
+  const cleanTarget = normalizedTarget.replace(/^\d+\.?\s*/, '').trim();
+  
   const titleOnly = headings.find((node) => {
     const normalizedTitle = normalizeHeadingText(node.title);
     if (normalizedTitle === normalizedTarget) return true;
     if (normalizedTitle.endsWith(normalizedTarget) || normalizedTitle.startsWith(normalizedTarget)) return true;
+    
+    // 去除数字编号后匹配
+    const cleanTitle = normalizedTitle.replace(/^\d+\.?\s*/, '').trim();
+    if (cleanTarget && cleanTitle && (cleanTitle.includes(cleanTarget) || cleanTarget.includes(cleanTitle))) return true;
+    
     const headToken = targetTokens[0];
     const tailToken = targetTokens[targetTokens.length - 1];
     return normalizedTitle.endsWith(' ' + normalizedTarget) || normalizedTitle.startsWith(normalizedTarget + ' ') || normalizedTitle.endsWith(' ' + tailToken) || normalizedTitle.startsWith(headToken + ' ');
   });
   return titleOnly ? { node: titleOnly, matchType: 'title-only' } : null;
+}
+
+
+// 1. 静态别名映射表 (Alias Mapping)
+const SECTION_ALIASES: Record<string, string> = {
+  "核心差异化": "3. 竞品与市场分析",
+  "核心差异化与目标": "3. 竞品与市场分析",
+  "竞争分析": "3. 竞品与市场分析",
+  "竞品分析": "3. 竞品与市场分析",
+  "市场分析": "3. 竞品与市场分析",
+  "MVP范围": "4. 目标",
+  "技术栈": "6. 技术架构与技术选型",
+  "技术栈概要": "6. 技术架构与技术选型",
+  "技术选型": "6. 技术架构与技术选型",
+  "困难分析": "7. 技术难点与解决方案",
+  "目标用户": "5. 核心场景",
+  "典型使用场景": "5. 核心场景",
+  "功能需求": "5. 核心场景",
+  "背景与概述": "2. 项目背景与问题定义",
+  "问题定义": "2. 项目背景与问题定义",
+  "目标": "4. 目标",
+  "范围": "4. 目标",
+  "风险与应对": "7. 技术难点与解决方案",
+  "非功能需求": "7. 技术难点与解决方案",
+  "约束与依赖": "7. 技术难点与解决方案",
+  "成功指标": "4. 目标与项目范围",
+  "用户画像": "5. 核心场景与功能需求",
+  "用户旅程": "5. 核心场景与功能需求",
+};
+
+function resolveSectionAlias(section: string): string {
+  // 策略 A: 完全精确匹配
+  if (SECTION_ALIASES[section]) return SECTION_ALIASES[section];
+  
+  // 策略 B: 去除数字编号后匹配
+  const cleanInput = section.replace(/^[\d.\s]+/, '').trim();
+  if (cleanInput && SECTION_ALIASES[cleanInput]) return SECTION_ALIASES[cleanInput];
+  
+  return section; // 无匹配，返回原值
 }
 
 function mergeAContent(currentContent: string, action: any): MergeResult {
@@ -488,8 +561,14 @@ function mergeAContent(currentContent: string, action: any): MergeResult {
     return { ok: true, content: upsertUnderFirstHeading(currentContent, instruction) };
   }
 
+  // 先尝试别名映射
+  const resolvedSection = resolveSectionAlias(section);
+  if (resolvedSection !== section) {
+    console.log('[autoWrite] mergeAContent: 别名映射 section=', section, '→', resolvedSection);
+  }
+  
   const headings = parseAllHeadings(currentContent);
-  const match = resolveHeadingMatch(headings, section);
+  const match = resolveHeadingMatch(headings, resolvedSection);
   if (!match) {
     console.warn('[autoWrite] mergeAContent: 未找到 section=', section, 'targetTitle=', normalizeHeadingText(section));
     return { ok: false, content: currentContent, reason: 'not_found' };
@@ -649,6 +728,37 @@ function parseStage(reply: string): VersionStage | null {
   return m ? (m[1].toLowerCase() as VersionStage) : null;
 }
 
+
+function repairJSON(jsonStr: string): string {
+  let s = jsonStr.trim();
+  
+  // 1. 去除单行注释 (// ...)
+  s = s.replace(/\/\/.*$/gm, '');
+  
+  // 2. 去除多行注释 (/* ... */)
+  s = s.replace(/\/\*[\s\S]*?\*\//g, '');
+  
+  // 3. 去除尾部逗号（, 后面跟着 } 或 ]）
+  s = s.replace(/,\s*([}\]])/g, '$1');
+  
+  // 4. 修复截断的 JSON：补全缺失的 } 和 ]
+  const openBraces = (s.match(/{/g) || []).length;
+  const closeBraces = (s.match(/}/g) || []).length;
+  const openBrackets = (s.match(/\[/g) || []).length;
+  const closeBrackets = (s.match(/\]/g) || []).length;
+  
+  // 补全缺失的 ]
+  for (let i = 0; i < openBrackets - closeBrackets; i++) {
+    s += '\n]';
+  }
+  // 补全缺失的 }
+  for (let i = 0; i < openBraces - closeBraces; i++) {
+    s += '\n}';
+  }
+  
+  return s;
+}
+
 function extractProtocol(reply: string): any | null {
   const idx = reply.indexOf('```json');
   if (idx < 0) { console.log('[autoWrite] extractProtocol: 未找到 ```json 块'); return null; }
@@ -663,13 +773,27 @@ function extractProtocol(reply: string): any | null {
     const m2 = reply.match(/```json\s*([\s\S]*?)```/);
     if (m2) {
       console.log('[autoWrite] extractProtocol: 宽松匹配成功, JSON 内容:', m2[1].slice(0, 200));
-      try { const p = JSON.parse(m2[1].trim()); console.log('[autoWrite] extractProtocol: JSON 解析成功, keys=', Object.keys(p)); return p; }
+      try { const repaired = repairJSON(m2[1]); const p = JSON.parse(repaired); console.log('[autoWrite] extractProtocol: JSON 解析成功, keys=', Object.keys(p)); return p; }
       catch (e) { console.log('[autoWrite] extractProtocol: JSON 解析失败', e); return null; }
     }
-    console.log('[autoWrite] extractProtocol: 严格和宽松匹配都失败');
+    console.log('[autoWrite] extractProtocol: 严格和宽松匹配都失败, 尝试截取到末尾');
+    // Fallback: extract from ```json to end of string
+    const jsonStart = reply.indexOf('```json');
+    if (jsonStart >= 0) {
+      const jsonContent = reply.slice(jsonStart + 7); // skip ```json
+      try {
+        const repaired = repairJSON(jsonContent);
+        const p = JSON.parse(repaired);
+        console.log('[autoWrite] extractProtocol: 截取末尾修复成功, keys=', Object.keys(p));
+        return p;
+      } catch (e) {
+        console.log('[autoWrite] extractProtocol: 截取末尾修复失败', e);
+        return null;
+      }
+    }
     return null;
   }
-  try { const p = JSON.parse(m[1]); console.log('[autoWrite] extractProtocol: 严格匹配成功, keys=', Object.keys(p)); return p; }
+  try { const repaired = repairJSON(m[1]); const p = JSON.parse(repaired); console.log('[autoWrite] extractProtocol: 严格匹配成功, keys=', Object.keys(p)); return p; }
   catch (e) { console.log('[autoWrite] extractProtocol: JSON 解析失败', e); return null; }
 }
 
@@ -1027,7 +1151,7 @@ function validateQuestionBlock(block: ParsedQuestionBlock, targetCount: number):
 
 interface TokenUsage { prompt: number; completion: number; total: number; }
 
-async function callAI(apiKey: string, endpoint: string, msgs: ChatMessage[], versions: any[], activeId: string, questionCount: number, files: FileItem[], activeFileId: string, snapshot: string, retryContext?: string): Promise<{ content: string; usage: TokenUsage | null }> {
+async function callAI(apiKey: string, endpoint: string, model: string, msgs: ChatMessage[], versions: any[], activeId: string, questionCount: number, files: FileItem[], activeFileId: string, snapshot: string, retryContext?: string): Promise<{ content: string; usage: TokenUsage | null }> {
   let runtimeCtx = buildRuntimeContext(questionCount, versions, activeId, files, activeFileId, snapshot);
   if (retryContext) runtimeCtx = retryContext + '\n\n' + runtimeCtx;
 
@@ -1045,7 +1169,7 @@ async function callAI(apiKey: string, endpoint: string, msgs: ChatMessage[], ver
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
-      body: JSON.stringify({ model: 'deepseek-chat', messages: msgList, temperature: 0.7, max_tokens: 16384 }),
+      body: JSON.stringify({ model, messages: msgList, temperature: 0.7, max_tokens: 16384 }),
       signal: controller.signal,
     });
     clearTimeout(timer);
@@ -1154,6 +1278,7 @@ async function ensureQuestionCount(
   snapshot: string,
   apiKey: string,
   endpoint: string,
+  model: string,
   msgs: ChatMessage[],
   versions: any[],
   activeVersionId: string,
@@ -1205,7 +1330,7 @@ async function ensureQuestionCount(
 
     const fillPrompt = buildFillPrompt(validation.missingIds, block.questions, snapshot);
     try {
-      const { content: fillReply, usage: fillUsage } = await callAI(apiKey, endpoint, msgs, versions, activeVersionId,
+      const { content: fillReply, usage: fillUsage } = await callAI(apiKey, endpoint, model, msgs, versions, activeVersionId,
         questionCount, files, activeFileId, fillPrompt);
       addUsage(fillUsage);
       const fillBlock = parseQuestionsBlock(fillReply);
@@ -1231,7 +1356,7 @@ async function ensureQuestionCount(
 
   const retryCtx = buildRetrySystemMsg(validation.reason, questionCount);
   try {
-    const { content: retryReply, usage: retryUsage } = await callAI(apiKey, endpoint, msgs, versions, activeVersionId,
+    const { content: retryReply, usage: retryUsage } = await callAI(apiKey, endpoint, model, msgs, versions, activeVersionId,
       questionCount, files, activeFileId, snapshot, retryCtx);
     addUsage(retryUsage);
     const retryBlock = parseQuestionsBlock(retryReply);
@@ -1262,12 +1387,11 @@ applyAccentColor('#7c3aed');
 applyThemeMode('dark');
 
 
-async function getUpstreamContent(files: FileItem[], activeFileId: string, verId: string, allUpstream: boolean): Promise<string> {
+async function getUpstreamContent(files: FileItem[], activeFileId: string, verId: string, fileIds: string[]): Promise<string> {
   const aGroup = files.find(f => f.id === 'group:a');
   const aChildren = aGroup?.children ?? [];
-  const currentIdx = aChildren.findIndex(f => f.id === activeFileId);
-  if (currentIdx <= 0) return '';
-  const upstreamFiles = allUpstream ? aChildren.slice(0, currentIdx) : [aChildren[currentIdx - 1]];
+  if (fileIds.length === 0) return '';
+  const upstreamFiles = aChildren.filter(f => fileIds.includes(f.id));
   const parts: string[] = [];
   for (const f of upstreamFiles) {
     const path = 'letsgo/versions/' + verId + '/' + f.id;
@@ -1280,6 +1404,14 @@ async function getUpstreamContent(files: FileItem[], activeFileId: string, verId
     } catch (e) { /* file may not exist yet */ }
   }
   return parts.join('\n\n');
+}
+
+function getUpstreamFiles(files: FileItem[], activeFileId: string): FileItem[] {
+  const aGroup = files.find(f => f.id === 'group:a');
+  const aChildren = aGroup?.children ?? [];
+  const currentIdx = aChildren.findIndex(f => f.id === activeFileId);
+  if (currentIdx <= 0) return [];
+  return aChildren.slice(0, currentIdx);
 }
 
 async function getAllAContent(files: FileItem[], verId: string): Promise<string> {
@@ -1298,6 +1430,8 @@ async function getAllAContent(files: FileItem[], verId: string): Promise<string>
   }
   return parts.join('\n\n');
 }
+
+
 
 export const useStore = create<AppState>()(
   persist(
@@ -1319,6 +1453,7 @@ export const useStore = create<AppState>()(
   isReadOnly: false,
   temporaryActions: [],
   apiKey: '',
+  model: 'mimo-v2.5-pro',
   apiEndpoint: 'https://api.deepseek.com/v1/chat/completions',
   isLoading: false,
   questionCount: 3,
@@ -1326,6 +1461,7 @@ export const useStore = create<AppState>()(
   retryPrompt: null,
   fileMessages: {},
   pendingAction: null,
+  upstreamSelection: null,
   questionGen: null,
 
   setTheme: (theme) => {
@@ -1338,6 +1474,7 @@ export const useStore = create<AppState>()(
   },
 
   setPendingAction: (pa) => set({ pendingAction: pa }),
+  setUpstreamSelection: (ids) => set({ upstreamSelection: ids }),
 
   confirmAndExec: (id, action) => {
     const pa = get().pendingAction;
@@ -1423,6 +1560,7 @@ export const useStore = create<AppState>()(
   })),
 
   setInputText: (text) => set({ inputText: text }),
+  setPendingAttachments: (files) => set({ pendingAttachments: files }),
 
 
   sendMessage: async () => {
@@ -1456,7 +1594,9 @@ export const useStore = create<AppState>()(
     }
     const protocolPrefix = '【请在你的回复末尾输出 ```json 协议块，写入文档。】\n\n';
     const augmentedText = text.startsWith('【请在你的回复末尾') ? text : protocolPrefix + text;
-    const userMsg: ChatMessage = { id: 'm' + (msgCounter++), role: 'user', content: augmentedText, timestamp: now() };
+    const attachments = get().pendingAttachments;
+    const userMsg: ChatMessage = { id: 'm' + (msgCounter++), role: 'user', content: augmentedText, timestamp: now(), attachments: attachments && attachments.length > 0 ? attachments : undefined };
+    set({ pendingAttachments: undefined });
     console.log('[sendMsg] ========== 用户发送消息 ==========');
     console.log('[sendMsg] 内容长度:', text.length, '当前文件:', activeFileId);
     console.log('[sendMsg] 消息内容:', text.slice(0, 500));
@@ -1467,16 +1607,21 @@ export const useStore = create<AppState>()(
       // Detect inputType and inject upstream content
       const isChange = text.includes('【inputType=change】');
       let upstreamContent = '';
-      if (isChange) {
+      const sel = get().upstreamSelection;
+      if (sel !== null && sel.length > 0) {
+        upstreamContent = await getUpstreamContent(get().files, get().activeFileId, get().activeVersionId, sel);
+      } else if (isChange) {
         upstreamContent = await getAllAContent(get().files, get().activeVersionId);
       } else {
-        upstreamContent = await getUpstreamContent(get().files, get().activeFileId, get().activeVersionId, false);
+        const upstreamFiles = getUpstreamFiles(get().files, get().activeFileId);
+        const defaultIds = isChange ? upstreamFiles.map(f => f.id) : (upstreamFiles.length > 0 ? [upstreamFiles[upstreamFiles.length - 1].id] : []);
+        upstreamContent = await getUpstreamContent(get().files, get().activeFileId, get().activeVersionId, defaultIds);
       }
       const rawSnapshot = get().lines.map(l => l.text).join('\n');
       const snapshot = upstreamContent
         ? '【上游文档内容】\n' + upstreamContent + '\n\n【当前文档内容】\n' + rawSnapshot
         : rawSnapshot;
-      const { content: reply, usage: firstUsage } = await callAI(apiKey, get().apiEndpoint, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot);
+      const { content: reply, usage: firstUsage } = await callAI(apiKey, get().apiEndpoint, get().model, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot);
       const parsedStage = parseStage(reply);
 
       // ── 校验门禁 (questionCount > 1 时启用) ──
@@ -1485,7 +1630,7 @@ export const useStore = create<AppState>()(
       let totalUsage: TokenUsage = firstUsage ?? { prompt: 0, completion: 0, total: 0 };
       if (questionCount > 1) {
         const result = await ensureQuestionCount(reply, questionCount, snapshot,
-          apiKey, get().apiEndpoint, get().messages, get().versions, get().activeVersionId,
+          apiKey, get().apiEndpoint, get().model, get().messages, get().versions, get().activeVersionId,
           get().files, get().activeFileId);
         finalReply = result.finalReply;
         genState = result.genState;
@@ -1556,7 +1701,7 @@ export const useStore = create<AppState>()(
               '不得输出其他文字或代码块标记，只输出 JSON 数组。',
             ].join('\n');
             try {
-              const { content: fillReply } = await callAI(apiKey, get().apiEndpoint, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot, fillPrompt);
+              const { content: fillReply } = await callAI(apiKey, get().apiEndpoint, get().model, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot, fillPrompt);
               const jsonMatch = fillReply.match(/\[[\s\S]*?\]/);
               if (jsonMatch) {
                 const filled = JSON.parse(jsonMatch[0]);
@@ -1689,6 +1834,7 @@ export const useStore = create<AppState>()(
   setFiles: (files) => set({ files }),
   setEditorLines: (lines) => set({ lines }),
   setApiKey: (key) => set({ apiKey: key }),
+  setModel: (model) => set({ model }),
   setApiEndpoint: (endpoint) => set({ apiEndpoint: endpoint }),
   setQuestionCount: (n) => set({ questionCount: n }),
 
@@ -1752,7 +1898,7 @@ export const useStore = create<AppState>()(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: fullName, content: '# ' + fullName.replace('.md', '') + '\n\n', dir }),
       });
-      if (!res.ok) { const err = await res.json(); alert(err.error || '创建失败'); return; }
+      if (!res.ok) { const err = await res.json(); showToast(err.error || '创建失败', 'error'); return; }
       const data = await res.json();
       const newFile: FileItem = { id: 'x/' + data.name, name: data.name, type: data.type as FileItem['type'], category: 'x', createdByUser: true, light: 'gray' };
       const currentFiles = get().files;
@@ -1770,7 +1916,7 @@ export const useStore = create<AppState>()(
           })
         : [...currentFiles, { id: 'group:x', name: 'X 自建文档', type: 'folder' as const, category: 'x' as const, children: [newFile] }];
       set({ files: updated, activeFileId: newFile.id });
-    } catch { alert('创建文件失败'); }
+    } catch { showToast('创建文件失败', 'error'); }
   },
 
   toggleLight: (fileId) => {
@@ -1829,7 +1975,9 @@ export const useStore = create<AppState>()(
     } catch (e) { /* ignore */ }
 
     const rawSnapshot = lines.map((l: any) => l.text).join('\n');
-    const upstreamContent = await getUpstreamContent(files, lockAdvance.nextFileId, verId, false);
+    const upstreamFiles2 = getUpstreamFiles(files, lockAdvance.nextFileId);
+    const defaultIds2 = upstreamFiles2.length > 0 ? [upstreamFiles2[upstreamFiles2.length - 1].id] : [];
+    const upstreamContent = await getUpstreamContent(files, lockAdvance.nextFileId, verId, defaultIds2);
     const snapshot = upstreamContent
       ? '【上游文档内容】\n' + upstreamContent + '\n\n【当前文档内容】\n' + rawSnapshot
       : rawSnapshot;
@@ -1847,7 +1995,7 @@ export const useStore = create<AppState>()(
     // Call AI directly with empty user message to trigger first round of questions
     try {
       const userMsg: ChatMessage = { id: 'm' + (msgCounter++), role: 'user', content: '请开始分析当前文档并提出问题。', timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) };
-      const { content: reply, usage } = await callAI(apiKey, apiEndpoint, [userMsg], versions, activeVersionId, questionCount, files, lockAdvance.nextFileId, snapshot);
+      const { content: reply, usage } = await callAI(apiKey, apiEndpoint, get().model, [userMsg], versions, activeVersionId, questionCount, files, lockAdvance.nextFileId, snapshot);
       const visibleText = reply.replace(/```json[\s\S]*?```/g, '').trim() || reply;
       const protocol = extractProtocol(reply);
       set((s) => ({
@@ -1922,7 +2070,7 @@ export const useStore = create<AppState>()(
           const data = await r.json();
           if (!data.lines) { console.log('[resetFile] 模板不存在'); return; }
           content = data.lines.map((l: any) => l.text).join(String.fromCharCode(10));
-        } catch (e) { console.log('[resetFile] 读取模板失败', e); alert('重置失败'); return; }
+        } catch (e) { console.log('[resetFile] 读取模板失败', e); showToast('重置失败', 'error'); return; }
       } else {
         const name = file.name.replace(/\.md$/, '');
         const title = name.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
@@ -1935,7 +2083,7 @@ export const useStore = create<AppState>()(
         const data = await r.json();
         if (!data.lines) { console.log('[resetFile] 模板不存在'); return; }
         content = data.lines.map((l: any) => l.text).join(String.fromCharCode(10));
-      } catch (e) { console.log('[resetFile] 读取模板失败', e); alert('重置失败'); return; }
+      } catch (e) { console.log('[resetFile] 读取模板失败', e); showToast('重置失败', 'error'); return; }
     }
     console.log('[resetFile] 内容长度:', content.length);
 
@@ -1951,7 +2099,7 @@ export const useStore = create<AppState>()(
       if (cat === 'a') {
         appendResetMarkers(fileId, verId);
       }
-    } catch (e) { console.log('[resetFile] 失败', e); alert('重置失败'); }
+    } catch (e) { console.log('[resetFile] 失败', e); showToast('重置失败', 'error'); }
   },
 
   deleteFile: async (fileId) => {
@@ -1969,7 +2117,7 @@ export const useStore = create<AppState>()(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filePath: relPath }),
       });
-      if (!r.ok) { alert('删除失败'); return; }
+      if (!r.ok) { showToast('删除失败', 'error'); return; }
       // Find next file before removing from tree
       const isActive = get().activeFileId === fileId;
       let nextId = get().activeFileId;
@@ -1988,7 +2136,7 @@ export const useStore = create<AppState>()(
       });
       set({ files: updated, activeFileId: nextId });
       if (nextId && nextId !== fileId) get().selectFile(nextId);
-    } catch { alert('删除文件失败'); }
+    } catch { showToast('删除文件失败', 'error'); }
   },
 
   renameFile: async (fileId, newName) => {
@@ -2010,7 +2158,7 @@ export const useStore = create<AppState>()(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ oldPath, newPath }),
       });
-      if (!r.ok) { alert('重命名失败'); return; }
+      if (!r.ok) { showToast('重命名失败', 'error'); return; }
       // Update file tree
       const updated = files.map((g) => {
         if (!g.children) return g;
@@ -2018,19 +2166,19 @@ export const useStore = create<AppState>()(
       });
       const isActive = get().activeFileId === fileId;
       set({ files: updated, activeFileId: isActive ? newId : get().activeFileId });
-    } catch { alert('重命名失败'); }
+    } catch { showToast('重命名失败', 'error'); }
   },
 
   deleteVersion: async (versionId) => {
     const versions = get().versions;
-    if (versions.length <= 1) { alert('至少保留一个版本'); return; }
+    if (versions.length <= 1) { showToast('至少保留一个版本', 'error'); return; }
     try {
       const r = await fetch('/api/versions', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ versionId }),
       });
-      if (!r.ok) { alert('删除版本失败'); return; }
+      if (!r.ok) { showToast('删除版本失败', 'error'); return; }
       // Remove from versions list
       const idx = versions.findIndex((v: any) => v.id === versionId);
       const updated = versions.filter((v: any) => v.id !== versionId);
@@ -2038,7 +2186,7 @@ export const useStore = create<AppState>()(
       const nextId = updated[prevIdx]?.id ?? '';
       set({ versions: updated, activeVersionId: nextId });
       if (nextId) get().selectVersion(nextId);
-    } catch { alert('删除版本失败'); }
+    } catch { showToast('删除版本失败', 'error'); }
   },
   }),
   {
