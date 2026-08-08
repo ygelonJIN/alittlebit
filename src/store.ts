@@ -35,6 +35,7 @@ export interface AppState {
   temporaryActions: any[];
   apiKey: string;
   model: string;
+  setModel: (model: string) => void;
   apiEndpoint: string;
   isLoading: boolean;
   fileLoading: Record<string, boolean>;
@@ -509,10 +510,19 @@ function resolveHeadingMatch(headings: HeadingNode[], targetTitle: string): { no
 
   const targetTokens = normalizedTarget.split(' ').filter(Boolean);
   if (targetTokens.length === 0) return null;
+  
+  // 去除数字编号后的匹配（如 "6. 技术架构" → "技术架构"）
+  const cleanTarget = normalizedTarget.replace(/^\d+\.?\s*/, '').trim();
+  
   const titleOnly = headings.find((node) => {
     const normalizedTitle = normalizeHeadingText(node.title);
     if (normalizedTitle === normalizedTarget) return true;
     if (normalizedTitle.endsWith(normalizedTarget) || normalizedTitle.startsWith(normalizedTarget)) return true;
+    
+    // 去除数字编号后匹配
+    const cleanTitle = normalizedTitle.replace(/^\d+\.?\s*/, '').trim();
+    if (cleanTarget && cleanTitle && (cleanTitle.includes(cleanTarget) || cleanTarget.includes(cleanTitle))) return true;
+    
     const headToken = targetTokens[0];
     const tailToken = targetTokens[targetTokens.length - 1];
     return normalizedTitle.endsWith(' ' + normalizedTarget) || normalizedTitle.startsWith(normalizedTarget + ' ') || normalizedTitle.endsWith(' ' + tailToken) || normalizedTitle.startsWith(headToken + ' ');
@@ -542,6 +552,9 @@ const SECTION_ALIASES: Record<string, string> = {
   "风险与应对": "7. 技术难点与解决方案",
   "非功能需求": "7. 技术难点与解决方案",
   "约束与依赖": "7. 技术难点与解决方案",
+  "成功指标": "4. 目标与项目范围",
+  "用户画像": "5. 核心场景与功能需求",
+  "用户旅程": "5. 核心场景与功能需求",
   // Features aliases
   "功能分组": "2. 系统模块划分",
   "模块拆分": "2. 系统模块划分",
@@ -558,7 +571,7 @@ const SECTION_ALIASES: Record<string, string> = {
 
 function resolveSectionAlias(section: string): string {
   if (SECTION_ALIASES[section]) return SECTION_ALIASES[section];
-  const cleanInput = section.replace(/^\d+\.\s*/, '').trim();
+  const cleanInput = section.replace(/^[\d.\s]+/, '').trim();
   if (cleanInput && SECTION_ALIASES[cleanInput]) return SECTION_ALIASES[cleanInput];
   return section;
 }
@@ -571,8 +584,14 @@ function mergeAContent(currentContent: string, action: any): MergeResult {
     return { ok: true, content: upsertUnderFirstHeading(currentContent, instruction) };
   }
 
+  // 先尝试别名映射
+  const resolvedSection = resolveSectionAlias(section);
+  if (resolvedSection !== section) {
+    console.log('[autoWrite] mergeAContent: 别名映射 section=', section, '→', resolvedSection);
+  }
+
   const headings = parseAllHeadings(currentContent);
-  const match = resolveHeadingMatch(headings, section);
+  const match = resolveHeadingMatch(headings, resolvedSection);
   if (!match) {
     console.warn('[autoWrite] mergeAContent: 未找到 section=', section, 'targetTitle=', normalizeHeadingText(section));
     return { ok: false, content: currentContent, reason: 'not_found' };
@@ -1605,12 +1624,8 @@ export const useStore = create<AppState>()(
       return;
     }
     const protocolPrefix = '【请在你的回复末尾输出 ```json 协议块，写入文档。】\n\n';
+    const augmentedText = text.startsWith('【请在你的回复末尾') ? text : protocolPrefix + text;
     const attachments = get().pendingAttachments;
-    let attachmentPrefix = '';
-    if (attachments && attachments.length > 0) {
-      attachmentPrefix = attachments.map(a => `[用户上传的文件：${a.name}]\n\n${a.content}`).join('\n\n') + '\n\n';
-    }
-    const augmentedText = (attachmentPrefix + (text.startsWith('【请在你的回复末尾') ? text : protocolPrefix + text));
     const userMsg: ChatMessage = { id: 'm' + (msgCounter++), role: 'user', content: augmentedText, timestamp: now(), attachments: attachments && attachments.length > 0 ? attachments.map(a => ({ name: a.name, size: a.size })) : undefined };
     set({ pendingAttachments: undefined });
     console.log('[sendMsg] ========== 用户发送消息 ==========');
@@ -1693,16 +1708,34 @@ export const useStore = create<AppState>()(
       // Execute protocol from parsed message
       const protocol = newMsgs[newMsgs.length - 1].protocol;
       console.log('[autoWrite] sendMessage: protocol 存在?', !!protocol);
-      if (protocol) {
-        if (!protocolHasRequiredFields(protocol)) {
+      if (!protocol) {
+        // ── 协议缺失重试：请求 AI 补输出协议块 ──
+        console.log('[autoWrite] sendMessage: 协议缺失, 触发重试');
+        try {
+          const retryPrompt = '【紧急】你的上一轮回复缺少 ```json 协议块。请立即补充输出完整的协议块，格式如下：\n```json\n{\n  "writeActions": [{ "targetFile": "a/XX.md", "targetSection": "section名", "content": "写入内容" }],\n  "confirmations": ["确认项"],\n  "lockCurrentDocument": false\n}\n```\n只输出这个 JSON 块，不要输出其他文字。';
+          const { content: retryReply } = await callAI(apiKey, get().apiEndpoint, get().model, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot, retryPrompt);
+          const retryProtocol = extractProtocol(retryReply);
+          if (retryProtocol) {
+            console.log('[autoWrite] sendMessage: 协议重试成功');
+            newMsgs[newMsgs.length - 1].protocol = retryProtocol;
+          } else {
+            console.warn('[autoWrite] sendMessage: 协议重试失败, AI 仍未输出协议块');
+          }
+        } catch (e: any) {
+          console.warn('[autoWrite] sendMessage: 协议重试异常', e?.message || e);
+        }
+      }
+      const finalProtocol = newMsgs[newMsgs.length - 1].protocol;
+      if (finalProtocol) {
+        if (!protocolHasRequiredFields(finalProtocol)) {
           console.log('[autoWrite] sendMessage: protocol 缺少必填字段, 显示提示');
           set((s) => ({
             messages: [...s.messages, { id: 'm' + (msgCounter++), role: 'assistant' as const, content: 'AI 回复缺少协议块，未执行自动回填。', timestamp: now() }],
           }));
         } else {
           // ── 窄重试：confirmations 非空但 writeActions 为空 → 补写一次 ──
-          const writeActions = Array.isArray(protocol.writeActions) ? protocol.writeActions : [];
-          const confirmations = Array.isArray(protocol.confirmations) ? protocol.confirmations : [];
+          const writeActions = Array.isArray(finalProtocol.writeActions) ? finalProtocol.writeActions : [];
+          const confirmations = Array.isArray(finalProtocol.confirmations) ? finalProtocol.confirmations : [];
           if (writeActions.length === 0 && confirmations.length > 0) {
             console.log('[autoWrite] sendMessage: writeActions 为空但 confirmations 非空, 触发窄重试');
             const fillPrompt = [
@@ -1722,7 +1755,7 @@ export const useStore = create<AppState>()(
               if (jsonMatch) {
                 const filled = JSON.parse(jsonMatch[0]);
                 if (Array.isArray(filled) && filled.length > 0) {
-                  protocol.writeActions = filled;
+                  finalProtocol.writeActions = filled;
                   console.log('[autoWrite] sendMessage: 窄重试成功, 补写 writeActions count=', filled.length);
                 }
               } else {
@@ -1734,7 +1767,7 @@ export const useStore = create<AppState>()(
           }
 
           console.log('[autoWrite] sendMessage: 直接执行 executeProtocol');
-          executeProtocol(get(), protocol).catch((err: any) => {
+          executeProtocol(get(), finalProtocol).catch((err: any) => {
             console.warn('[executeProtocol] failed', err);
             set((s) => ({
               messages: [...s.messages, { id: 'm' + (msgCounter++), role: 'assistant' as const, content: '自动回填失败: ' + (err?.message || String(err)), timestamp: now() }],
@@ -1848,6 +1881,7 @@ export const useStore = create<AppState>()(
   setFiles: (files) => set({ files }),
   setEditorLines: (lines) => set({ lines }),
   setApiKey: (key) => set({ apiKey: key }),
+  setModel: (model) => set({ model }),
   setApiEndpoint: (endpoint) => set({ apiEndpoint: endpoint }),
   setQuestionCount: (n) => set({ questionCount: n }),
 
@@ -2240,16 +2274,3 @@ export const useStore = create<AppState>()(
   },
 ));
 
-// Auto-sync messages to fileMessages[activeFileId]
-useStore.subscribe((state, prevState) => {
-  if (state.messages !== prevState.messages) {
-    const { activeFileId, messages, fileMessages } = state;
-    console.log('[fileSync] messages changed, activeFileId=', activeFileId, 'fileMsgsLen=', fileMessages[activeFileId]?.length, 'msgsLen=', messages.length);
-    if (fileMessages[activeFileId] !== messages) {
-      console.log('[fileSync] syncing to fileMessages[', activeFileId, ']');
-      useStore.setState({
-        fileMessages: { ...fileMessages, [activeFileId]: messages },
-      });
-    }
-  }
-});

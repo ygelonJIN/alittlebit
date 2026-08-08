@@ -195,7 +195,9 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const inputText = useStore((s) => s.inputText);
   const setInputText = useStore((s) => s.setInputText);
   const sendMessage = useStore((s) => s.sendMessage);
-  const isLoading = useStore((s) => s.isLoading);
+  const fileLoading = useStore((s) => s.fileLoading);
+  const activeFileId = useStore((s) => s.activeFileId);
+  const isLoading = fileLoading[activeFileId] ?? false;
   const apiKey = useStore((s) => s.apiKey);
   const lockAdvance = useStore((s) => s.lockAdvance);
   const confirmLockAdvance = useStore((s) => s.confirmLockAdvance);
@@ -205,7 +207,6 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const retrySend = useStore((s) => s.retrySend);
   const clearMessages = useStore((s) => s.clearMessages);
   const files = useStore((s) => s.files);
-  const activeFileId = useStore((s) => s.activeFileId);
   const upstreamSelection = useStore((s) => s.upstreamSelection);
   const setUpstreamSelection = useStore((s) => s.setUpstreamSelection);
   const pendingAttachments = useStore((s) => s.pendingAttachments);
@@ -219,26 +220,35 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const [activeMode, setActiveMode] = useState<'submit' | 'reply' | 'change' | null>(null);
   const [changeMode, setChangeMode] = useState(false);
   const composerRef = useRef<HTMLDivElement>(null);
+  const chatBodyRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; content: string; size: number }>>([]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const fileList = e.target.files;
-    if (!fileList || fileList.length === 0) return;
-    const file = fileList[0];
-    if (!file.name.endsWith('.md') && !file.name.endsWith('.txt')) {
-      return; // only .md/.txt
-    }
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const content = ev.target?.result as string;
-      setPendingAttachments([
-        ...(pendingAttachments || []),
-        { name: file.name, content, size: file.size },
-      ]);
-    };
-    reader.readAsText(file);
-    e.target.value = ''; // reset for re-select
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        setUploadedFiles(prev => [...prev, { name: file.name, content, size: file.size }]);
+      };
+      reader.readAsText(file);
+    });
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
+
+  const removeFile = (index: number) => {
+    setUploadedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Auto-scroll to latest message
+  useEffect(() => {
+    if (chatBodyRef.current) {
+      const lastMsg = chatBodyRef.current.querySelector('.msg-user:last-child, .msg-assistant:last-child, .loading-msg:last-child');
+      if (lastMsg) lastMsg.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [messages.length, isLoading]);
 
   // Compute all A docs except current, split by position
   const aGroup = files.find(f => f.id === 'group:a');
@@ -306,21 +316,34 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const doSend = () => {
     if (isLoading || isReadOnly) return;
     const text = inputText.trim();
-    if (!text) return;
+    if (!text && uploadedFiles.length === 0) return;
+
+    // Build message with files
+    let message = text;
+    if (uploadedFiles.length > 0) {
+      const filesContent = uploadedFiles.map(f =>
+        `[用户上传的文件：${f.name}]\n\n${f.content}`
+      ).join('\n\n---\n\n');
+      message = text ? `${text}\n\n${filesContent}` : filesContent;
+      setPendingAttachments(uploadedFiles.map(f => ({ name: f.name, size: f.size })));
+    } else {
+      setPendingAttachments(undefined);
+    }
+
     if (activeMode === 'reply') {
-      const tagged = `【inputType=answer】\n` + text;
+      const tagged = `【inputType=answer】\n` + message;
       setInputText(tagged);
       setTimeout(() => sendMessage(), 50);
     } else if (activeMode === 'change') {
-      const tagged = `【inputType=change】\n` + text;
+      const tagged = `【inputType=change】\n` + message;
       setInputText(tagged);
       setTimeout(() => sendMessage(), 50);
     } else {
-      // Cold start: no active mode, default to answer
-      const tagged = `【inputType=answer】\n` + text;
+      const tagged = `【inputType=answer】\n` + message;
       setInputText(tagged);
       setTimeout(() => sendMessage(), 50);
     }
+    setUploadedFiles([]);
   };
 
   const openMode = (mode: 'submit' | 'reply') => {
@@ -361,10 +384,28 @@ export default function ChatPanel({ isReadOnly }: Props) {
 
   return (
     <div className="chat">
-      <div className="chat-body">
+      <div className="chat-body" ref={chatBodyRef}>
         {messages.map((m) => {
             if (m.role === 'user') {
-              return <div key={m.id} className="msg-user">{m.content.replace(/【inputType=(?:answer|change)】\n/, '').replace(/【请在你的回复末尾输出.*?】\n\n/, '')}</div>;
+              const displayContent = m.content
+                .replace(/【inputType=(?:answer|change)】\n/, '')
+                .replace(/【请在你的回复末尾输出.*?】\n\n/, '')
+                .replace(/\n*\[用户上传的文件：[\s\S]*$/, '').trim();
+              return (
+                <div key={m.id} className="msg-user">
+                  <div className="msg-user-content">{displayContent}</div>
+                  {m.attachments && m.attachments.length > 0 && (
+                    <div className="msg-user-attachments">
+                      {m.attachments.map((f, i) => (
+                        <span key={i} className="msg-attachment">
+                          <span className="attachment-name">{f.name}</span>
+                          <span className="attachment-size">({(f.size / 1024).toFixed(1)} KB)</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
             }
             const { restContent, questions } = parseQuestions(m.content);
             return (
@@ -470,29 +511,27 @@ export default function ChatPanel({ isReadOnly }: Props) {
                     <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 8 Q6 4 10 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M2 4.5 Q6 0.5 10 4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
                   </button>
                 </div>
+                {uploadedFiles.length > 0 && (
+                  <div className="uploaded-files">
+                    {uploadedFiles.map((file, index) => (
+                      <div key={index} className="uploaded-file">
+                        <span className="file-name">{file.name}</span>
+                        <span className="file-size">({(file.size / 1024).toFixed(1)} KB)</span>
+                        <button className="remove-file" onClick={() => removeFile(index)}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="footer">
                   <input
                     ref={fileInputRef}
                     type="file"
                     accept=".md,.txt"
                     style={{ display: 'none' }}
-                    onChange={handleFileChange}
+                    onChange={handleFileUpload}
+                    multiple
                   />
                   <button className="btn" onClick={() => fileInputRef.current?.click()}>添加文件</button>
-                  {pendingAttachments && pendingAttachments.length > 0 && (
-                    <div className="uploaded-files">
-                      {pendingAttachments.map((a, i) => (
-                        <span key={i} className="uploaded-file">
-                          <span className="file-name">{a.name}</span>
-                          <span className="file-size">({(a.size / 1024).toFixed(1)}KB)</span>
-                          <button className="remove-file" onClick={() => {
-                            const next = pendingAttachments.filter((_, idx) => idx !== i);
-                            setPendingAttachments(next.length > 0 ? next : undefined);
-                          }}>×</button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
                   <button
                     className={`btn-correction${changeMode ? ' active' : ''}`}
                     onClick={() => setChangeMode(!changeMode)}

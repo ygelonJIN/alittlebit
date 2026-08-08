@@ -1,30 +1,27 @@
 # PRD：{项目名称}
 
 ## 1. 文档信息
-- 文档标题：Features - 桌面自动化5层级联策略栈工具
-- 文档编号：FEA-001
-- 版本：v0.1
-- 状态：collecting
-- 创建时间：2025-01-15
-- 来源：PRD-001
-- 关联上游文档：prd.md
+N/A：用户表示不关心文档信息格式细节（标题/编号），维持现状。
 ## 2. 项目背景与问题定义
 核心价值：节省独立开发者的重复劳动时间，将重复操作交给机器处理。
 ## 3. 竞品与市场分析
-- 市场现状：现有桌面自动化工具存在明显断层——传统 RPA（UiPath、Automation Anywhere、Blue Prism）规则驱动，UI 变化即失效；轻量 RPA（UI.Vision、OpenRPA、SikuliX）单层匹配，无降级策略；AI 工作流工具（Dify、Coze、Langflow）只处理文本/API，不碰桌面 GUI；Computer Use 类方案（Claude Computer Use、Open Interpreter）纯云端，慢且贵。低代码平台（n8n、Node-RED、ToolJet）不做桌面自动化。**4 级级联策略栈架构是市场空白。**
-- 竞品对比：
-  - 维度：本方案 vs 传统 RPA（UiPath/Automation Anywhere）vs 轻量 RPA（UI.Vision/SikuliX）vs AI 工作流（Dify/Coze/Langflow）vs Computer Use（Claude Computer Use/Open Interpreter）vs 低代码（n8n/Node-RED）
-  - 核心机制：本方案采用 5 层降级策略栈（坐标回放→模板匹配→YOLO→OCR→云端 API），每个节点独立配置级联顺序和置信度阈值；传统 RPA 规则驱动无 AI 兜底；轻量 RPA 单层 CV 匹配；AI 工作流仅文本/API 编排；Computer Use 纯云端多模态推理；低代码不涉及桌面 GUI 自动化
-  - 优势/劣势：本方案本地优先省成本省 token、多层降级高可靠、可视化无代码；劣势是用户需自行标注训练数据和调参。传统 RPA 成熟生态但无 AI 级联兜底。轻量 RPA 轻量简单但匹配可靠性差。AI 工作流生态丰富但不碰桌面。Computer Use 最智能但最慢最贵（2-5 秒/次）。低代码灵活但不支持桌面操作
+> 注：以下参考项目均作为开发者参考资料，与 React Flow 等开源项目同等地位，在开发阶段参考其交互模式、API 封装方式、架构思路等。
+
+**参考产品列表（仅列出名称，不做详细分析）**：
+- Open-Adapt（开源桌面自动化录制回放）
+- Rivet（可视化 AI 工作流编排）
+- Node-RED（流程编程工具）
+- n8n（开源工作流自动化）
+- Power Automate Desktop（微软桌面自动化）
+- Robot Framework（关键字驱动测试自动化）
 ## 4. 目标
 目标用户：独立开发者，想省重复劳动时间。
-## 5. 核心场景
-- 场景 1：批量表单填写 / 数据录入 — N/A：用户表示本期不展开具体场景描述
-- 场景 2：跨应用数据搬运 / 流程串联 — N/A：用户表示本期不展开具体场景描述
-- 场景 3：个人效率自动化 — N/A：用户表示本期不展开具体场景描述
-- 场景 4：游戏自动化脚本 — N/A：用户表示本期不展开具体场景描述
 
-> 注：核心场景类型已列出，具体用户旅程和详细描述本期暂不展开。
+**成功指标**：N/A：本期先定性不定量，量化指标留到后续版本。
+
+**实施计划**：N/A：MVP 实施计划放在 Implementation 文档中，PRD 只定目标和范围。
+## 5. 核心场景
+- 范围定义：N/A：用户声明不在PRD中定义范围边界。
 ## 6. 技术架构与技术选型
 ### 6.1 核心架构
 可视化画布（React Flow）产出节点+连线的管线 JSON，通过 Electron 的 child_process 传递给 Python 执行引擎。执行引擎解析 DAG → 拓扑排序 → 逐个节点执行 → 每节点内按用户配置的策略栈级联执行 → 每步留痕截图+结果验证 → 实时通过 stdout JSON 回传进度到画布更新调试面板。

@@ -311,7 +311,7 @@
 
 .mode-panel-compose {
   display: grid;
-  grid-template-rows: auto auto;
+  grid-template-rows: auto auto auto;
   align-items: start;
   height: 120px;
   max-height: 120px;
