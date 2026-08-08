@@ -297,33 +297,38 @@
 .mode-panel {
   display: grid;
   gap: 0;
-  min-height: 140px;
   box-sizing: border-box;
 }
 
 .mode-panel-actions {
-  min-height: 140px;
+  height: 80px;
   padding: 0;
   gap: 0;
   display: grid;
-  grid-template-rows: auto 1fr;
-  height: 100%;
+  grid-template-rows: 1fr;
   box-sizing: border-box;
 }
 
 .mode-panel-compose {
-  min-height: 140px;
-  height: 100%;
-  grid-template-rows: 1fr auto;
-  padding: 12px 14px 6px 14px;
+  display: grid;
+  grid-template-rows: auto auto;
+  align-items: start;
+  height: 120px;
+  max-height: 120px;
   box-sizing: border-box;
-  position: relative;
-  border-bottom: 3px solid var(--accent-solid);
+  padding: 0;
+  overflow: hidden;
+}
+
+.mode-panel-compose.expanded {
+  height: auto;
+  max-height: none;
+  overflow: visible;
 }
 
 .textarea-wrap {
   position: relative;
-  flex: 1;
+  padding: 6px 18px 0 18px;
 }
 
 .expand-btn {
@@ -371,13 +376,12 @@
   flex-direction: column;
   justify-content: stretch;
   gap: 0;
-  min-height: 140px;
   box-sizing: border-box;
 }
 
 .input-textarea {
   width: 100%;
-  min-height: 36px;
+  min-height: 12px;
   max-height: 90px;
   border: none;
   padding: 6px 8px;
@@ -391,6 +395,13 @@
   box-sizing: border-box;
 }
 
+.mode-panel-compose .input-textarea {
+}
+
+.mode-panel-compose.expanded .input-textarea {
+  max-height: none;
+}
+
 .input-textarea::placeholder {
   color: var(--muted);
   font-size: 14px;
@@ -401,8 +412,8 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 0;
   min-height: 32px;
+  padding: 6px 14px;
 }
 
 .hint {

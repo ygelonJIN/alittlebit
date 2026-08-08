@@ -34,12 +34,16 @@ export interface AppState {
   isReadOnly: boolean;
   temporaryActions: any[];
   apiKey: string;
+  model: string;
   apiEndpoint: string;
   isLoading: boolean;
+  fileLoading: Record<string, boolean>;
   questionCount: number;
   lockAdvance: { fileId: string; nextFileId: string } | null;
   retryPrompt: string | null;
   fileMessages: Record<string, ChatMessage[]>;
+  pendingAttachments?: Array<{ name: string; content: string; size: number }>;
+  setPendingAttachments: (attachments?: Array<{ name: string; content: string; size: number }>) => void;
   clearRetryPrompt: () => void;
   retrySend: () => void;
   clearMessages: () => void;
@@ -48,16 +52,12 @@ export interface AppState {
   selectLine: (id: string) => void;
   setInputText: (text: string) => void;
   sendMessage: () => Promise<void>;
-  pendingAttachments?: Array<{ name: string; size: number }>;
-  setPendingAttachments: (files: Array<{ name: string; size: number }> | undefined) => void;
   locklockVersion: (id: string) => void;
   renameVersion: (id: string, name: string) => void;
   createNextVersion: (id: string) => void;
   setFiles: (files: FileItem[]) => void;
   setEditorLines: (lines: EditorLine[]) => void;
   setApiKey: (key: string) => void;
-  model: string;
-  setModel: (model: string) => void;
   setApiEndpoint: (endpoint: string) => void;
   setQuestionCount: (n: number) => void;
   confirmLockAdvance: () => Promise<void>;
@@ -180,7 +180,7 @@ const SYSTEM_PROMPT = [
   '==================================================',
   '你必须看当前文档快照的实际内容来决定追问，不按固定模板机械追问。',
   '内容为空 + 没有 N/A 标注的章节 → 追问。已填内容、已有 N/A 标注的章节 → 跳过。不确定是否需要 → 追问用户确认。',
-  'PRD 阶段优先补：项目背景与问题定义、竞品与市场分析、目标、核心场景、技术架构与技术选型、技术难点与解决方案',
+  'PRD 阶段优先补：背景、目标、范围、用户、场景、功能、非功能、成功指标',
   'Features 阶段优先补：功能编号、分类、优先级、验收标准、依赖、边界',
   'Rules 阶段优先补：技术栈、命名、目录、状态管理、API、测试、安全',
   'RFC 阶段优先补：方案、依赖、文件变更、接口、状态、错误处理、测试策略',
@@ -206,8 +206,8 @@ const SYSTEM_PROMPT = [
   '==================================================',
   '八、A 类文档必备要求',
   '==================================================',
-  '所有 A 类文档都必须至少具备：文档状态 / 责任人 / 创建/更新时间 / 一句话定位',
-  'A 类文档末尾不需要版本治理衔接节，文档状态在文档信息中体现。',
+  '所有 A 类文档都必须至少具备：文档标题 / 文档编号 / 版本号 / 状态 / 创建时间 / 来源 / 关联上游文档 / 负责人 / 验收标准 / 版本治理衔接',
+  'A 类文档末尾必须增加"版本治理衔接"节：是否允许继续推进 / 是否有未确认项 / 是否有暂存项 / 是否已生成确认记录 / 是否已同步差异文件 / 是否已更新索引 / 是否已生成版本摘要 / 是否已进入锁定状态',
   '',
   '==================================================',
   '九、输出格式要求',
@@ -339,15 +339,9 @@ const SYSTEM_PROMPT = [
   '  "uiActions": { "selectFile": null, "lockCurrentDocument": false }',
   '}',
   '重要规则：',
-  '- 每轮必带协议块，不管上下文是什么。用户选选项、简短回答、闲聊、任何情况都必须输出。',
-  '- writeActions.content 必须是具体可写入的文档正文，不是对话摘要，不是复述问题，不要写"用户选择了A"。',
-  '- 例如用户选了A选项"30次用完永久锁定"，你应该写：content: "猜错次数上限为30次，用完永久锁定，无法恢复。"',
-  '- targetSection 用文档中的原标题，如"2. 项目背景与问题定义""3. 竞品与市场分析""4. 目标与项目范围"',
-  '- 【关键写入协议：writeActions 规范】',
-  '- 当你生成 writeActions 时，targetSection 字段的值必须【严格匹配】以下 8 个 H2 标题之一。',
-  '- 禁止更改字词、标点、编号或顺序！自创标题将直接导致系统崩溃。',
-  '-',
+  '- lockCurrentDocument 使用时机：当文档所有阻塞缺口已填写完毕（无空章节、无待确认字段），或用户明确说"锁定"时，设为 true。否则保持 false。',
   '- 【合法 Section 白名单（枚举）】：',
+  '- PRD 文档：',
   '- 1. "1. 文档信息"',
   '- 2. "2. 项目背景与问题定义"',
   '- 3. "3. 竞品与市场分析"',
@@ -355,12 +349,21 @@ const SYSTEM_PROMPT = [
   '- 5. "5. 核心场景"',
   '- 6. "6. 技术架构与技术选型"',
   '- 7. "7. 技术难点与解决方案"',
+  '- Features 文档：',
+  '- 8. "1. 文档信息"',
+  '- 9. "2. 系统模块划分"',
+  '- 10. "3. 核心功能清单"',
+  '- 11. "4. 依赖与执行流"',
+  '- 12. "5. 全局技术规则"',
   '-',
   '- 【JSON 字段匹配示例】：',
   '- CORRECT: { "targetSection": "6. 技术架构与技术选型", "content": "..." }',
   '- WRONG:   { "targetSection": "技术栈概要", "content": "..." }  <-- 严禁自创名称！',
   '- WRONG:   { "targetSection": "6.技术架构与选型", "content": "..." } <-- 严禁删减字词！',
-
+  '- 每轮必带协议块，不管上下文是什么。用户选选项、简短回答、闲聊、任何情况都必须输出。',
+  '- writeActions.content 必须是具体可写入的文档正文，不是对话摘要，不是复述问题，不要写"用户选择了A"。',
+  '- 例如用户选了A选项"30次用完永久锁定"，你应该写：content: "猜错次数上限为30次，用完永久锁定，无法恢复。"',
+  '- targetSection 用文档中的原标题，如"2. 背景与概述""3. 问题定义""4. 目标"',
   '- operation 推荐使用 upsert；同一 section 多轮对话应增量更新而不是整文件覆盖',
   '- 不确定内容走临时暂存，不得进 writeActions',
   '- questions 最多 5 个',
@@ -378,12 +381,23 @@ const B_TEMPLATE_FILES = new Set([
   'lock_summary.md',
 ]);
 
-function buildFileTree(data: any[]): FileItem[] {
+function buildFileTree(data: any[], prevFiles?: FileItem[]): FileItem[] {
   const aChildren: FileItem[] = [];
   const bChildren: FileItem[] = [];
   const cChildren: FileItem[] = [];
   const xChildren: FileItem[] = [];
   const rootFiles: FileItem[] = [];
+
+  const prevLightMap = new Map<string, string>();
+  if (prevFiles) {
+    for (const g of prevFiles) {
+      if (g.children) {
+        for (const f of g.children) {
+          if (f.light) prevLightMap.set(f.id, f.light);
+        }
+      }
+    }
+  }
 
   for (const f of data) {
     if (f.type === 'folder' && f.name === 'a/') continue;
@@ -402,7 +416,8 @@ function buildFileTree(data: any[]): FileItem[] {
     }
 
     if (f.name.startsWith('a/')) {
-      aChildren.push({ id: f.name, name: f.name.slice(2).replace(/^\d+-/, ''), type: f.type as any, category: 'a', light: 'gray', hasTemplate: true });
+      const light = prevLightMap.get(f.name) || 'gray';
+      aChildren.push({ id: f.name, name: f.name.slice(2).replace(/^\d+-/, ''), type: f.type as any, category: 'a', light: light as 'gray' | 'green', hasTemplate: true });
       continue;
     }
 
@@ -494,19 +509,10 @@ function resolveHeadingMatch(headings: HeadingNode[], targetTitle: string): { no
 
   const targetTokens = normalizedTarget.split(' ').filter(Boolean);
   if (targetTokens.length === 0) return null;
-  
-  // 去除数字编号后的匹配（如 "6. 技术架构" → "技术架构"）
-  const cleanTarget = normalizedTarget.replace(/^\d+\.?\s*/, '').trim();
-  
   const titleOnly = headings.find((node) => {
     const normalizedTitle = normalizeHeadingText(node.title);
     if (normalizedTitle === normalizedTarget) return true;
     if (normalizedTitle.endsWith(normalizedTarget) || normalizedTitle.startsWith(normalizedTarget)) return true;
-    
-    // 去除数字编号后匹配
-    const cleanTitle = normalizedTitle.replace(/^\d+\.?\s*/, '').trim();
-    if (cleanTarget && cleanTitle && (cleanTitle.includes(cleanTarget) || cleanTarget.includes(cleanTitle))) return true;
-    
     const headToken = targetTokens[0];
     const tailToken = targetTokens[targetTokens.length - 1];
     return normalizedTitle.endsWith(' ' + normalizedTarget) || normalizedTitle.startsWith(normalizedTarget + ' ') || normalizedTitle.endsWith(' ' + tailToken) || normalizedTitle.startsWith(headToken + ' ');
@@ -514,9 +520,8 @@ function resolveHeadingMatch(headings: HeadingNode[], targetTitle: string): { no
   return titleOnly ? { node: titleOnly, matchType: 'title-only' } : null;
 }
 
-
-// 1. 静态别名映射表 (Alias Mapping)
 const SECTION_ALIASES: Record<string, string> = {
+  // PRD aliases
   "核心差异化": "3. 竞品与市场分析",
   "核心差异化与目标": "3. 竞品与市场分析",
   "竞争分析": "3. 竞品与市场分析",
@@ -537,20 +542,25 @@ const SECTION_ALIASES: Record<string, string> = {
   "风险与应对": "7. 技术难点与解决方案",
   "非功能需求": "7. 技术难点与解决方案",
   "约束与依赖": "7. 技术难点与解决方案",
-  "成功指标": "4. 目标与项目范围",
-  "用户画像": "5. 核心场景与功能需求",
-  "用户旅程": "5. 核心场景与功能需求",
+  // Features aliases
+  "功能分组": "2. 系统模块划分",
+  "模块拆分": "2. 系统模块划分",
+  "业务模块": "2. 系统模块划分",
+  "功能列表": "3. 核心功能清单",
+  "详细功能": "3. 核心功能清单",
+  "功能描述": "3. 核心功能清单",
+  "功能依赖图": "4. 依赖与执行流",
+  "开发顺序": "4. 依赖与执行流",
+  "依赖关系": "4. 依赖与执行流",
+  "技术规则": "5. 全局技术规则",
+  "全局约束": "5. 全局技术规则",
 };
 
 function resolveSectionAlias(section: string): string {
-  // 策略 A: 完全精确匹配
   if (SECTION_ALIASES[section]) return SECTION_ALIASES[section];
-  
-  // 策略 B: 去除数字编号后匹配
-  const cleanInput = section.replace(/^[\d.\s]+/, '').trim();
+  const cleanInput = section.replace(/^\d+\.\s*/, '').trim();
   if (cleanInput && SECTION_ALIASES[cleanInput]) return SECTION_ALIASES[cleanInput];
-  
-  return section; // 无匹配，返回原值
+  return section;
 }
 
 function mergeAContent(currentContent: string, action: any): MergeResult {
@@ -561,14 +571,8 @@ function mergeAContent(currentContent: string, action: any): MergeResult {
     return { ok: true, content: upsertUnderFirstHeading(currentContent, instruction) };
   }
 
-  // 先尝试别名映射
-  const resolvedSection = resolveSectionAlias(section);
-  if (resolvedSection !== section) {
-    console.log('[autoWrite] mergeAContent: 别名映射 section=', section, '→', resolvedSection);
-  }
-  
   const headings = parseAllHeadings(currentContent);
-  const match = resolveHeadingMatch(headings, resolvedSection);
+  const match = resolveHeadingMatch(headings, section);
   if (!match) {
     console.warn('[autoWrite] mergeAContent: 未找到 section=', section, 'targetTitle=', normalizeHeadingText(section));
     return { ok: false, content: currentContent, reason: 'not_found' };
@@ -728,73 +732,59 @@ function parseStage(reply: string): VersionStage | null {
   return m ? (m[1].toLowerCase() as VersionStage) : null;
 }
 
+function extractProtocol(aiResponse: string): any | null {
+  if (!aiResponse) return null;
 
-function repairJSON(jsonStr: string): string {
-  let s = jsonStr.trim();
-  
-  // 1. 去除单行注释 (// ...)
-  s = s.replace(/\/\/.*$/gm, '');
-  
-  // 2. 去除多行注释 (/* ... */)
-  s = s.replace(/\/\*[\s\S]*?\*\//g, '');
-  
-  // 3. 去除尾部逗号（, 后面跟着 } 或 ]）
-  s = s.replace(/,\s*([}\]])/g, '$1');
-  
-  // 4. 修复截断的 JSON：补全缺失的 } 和 ]
-  const openBraces = (s.match(/{/g) || []).length;
-  const closeBraces = (s.match(/}/g) || []).length;
-  const openBrackets = (s.match(/\[/g) || []).length;
-  const closeBrackets = (s.match(/\]/g) || []).length;
-  
-  // 补全缺失的 ]
-  for (let i = 0; i < openBrackets - closeBrackets; i++) {
-    s += '\n]';
-  }
-  // 补全缺失的 }
-  for (let i = 0; i < openBraces - closeBraces; i++) {
-    s += '\n}';
-  }
-  
-  return s;
-}
-
-function extractProtocol(reply: string): any | null {
-  const idx = reply.indexOf('```json');
-  if (idx < 0) { console.log('[autoWrite] extractProtocol: 未找到 ```json 块'); return null; }
-  // Log context around the match
-  const before = reply.slice(Math.max(0, idx - 20), idx);
-  const after = reply.slice(idx, idx + 500);
-  console.log('[autoWrite] extractProtocol: 找到 ```json 位置=' + idx + ', 前20字符:', JSON.stringify(before), ', 后500字符:', JSON.stringify(after));
-  
-  const m = reply.match(/```json\s*\n([\\s\S]*?)\n```/);
-  if (!m) {
-    // Try more flexible patterns
-    const m2 = reply.match(/```json\s*([\s\S]*?)```/);
-    if (m2) {
-      console.log('[autoWrite] extractProtocol: 宽松匹配成功, JSON 内容:', m2[1].slice(0, 200));
-      try { const repaired = repairJSON(m2[1]); const p = JSON.parse(repaired); console.log('[autoWrite] extractProtocol: JSON 解析成功, keys=', Object.keys(p)); return p; }
-      catch (e) { console.log('[autoWrite] extractProtocol: JSON 解析失败', e); return null; }
-    }
-    console.log('[autoWrite] extractProtocol: 严格和宽松匹配都失败, 尝试截取到末尾');
-    // Fallback: extract from ```json to end of string
-    const jsonStart = reply.indexOf('```json');
-    if (jsonStart >= 0) {
-      const jsonContent = reply.slice(jsonStart + 7); // skip ```json
-      try {
-        const repaired = repairJSON(jsonContent);
-        const p = JSON.parse(repaired);
-        console.log('[autoWrite] extractProtocol: 截取末尾修复成功, keys=', Object.keys(p));
-        return p;
-      } catch (e) {
-        console.log('[autoWrite] extractProtocol: 截取末尾修复失败', e);
-        return null;
+  // Core fix: use bracket stack depth to extract first complete {} block
+  const extractFirstValidJsonBlock = (text: string) => {
+    const startIndex = text.indexOf('{');
+    if (startIndex === -1) return null;
+    
+    let depth = 0;
+    for (let i = startIndex; i < text.length; i++) {
+      if (text[i] === '{') depth++;
+      else if (text[i] === '}') depth--;
+      
+      if (depth === 0) {
+        return text.substring(startIndex, i + 1);
       }
     }
-    return null;
+    
+    const endIndex = text.lastIndexOf('}');
+    return endIndex > startIndex ? text.substring(startIndex, endIndex + 1) : null;
+  };
+
+  const rawJsonString = extractFirstValidJsonBlock(aiResponse);
+
+  if (rawJsonString) {
+    try {
+      return JSON.parse(rawJsonString);
+    } catch (e) {
+      try {
+        const repairedString = repairJSON(rawJsonString);
+        return JSON.parse(repairedString); 
+      } catch (repairError) {
+        console.warn("[extractProtocol] JSON repair failed", repairError);
+      }
+    }
   }
-  try { const repaired = repairJSON(m[1]); const p = JSON.parse(repaired); console.log('[autoWrite] extractProtocol: 严格匹配成功, keys=', Object.keys(p)); return p; }
-  catch (e) { console.log('[autoWrite] extractProtocol: JSON 解析失败', e); return null; }
+
+  // Fallback: regex extract key fields
+  const lockMatch = aiResponse.match(/"lockCurrentDocument"\s*:\s*(true|false)/);
+  const selectFileMatch = aiResponse.match(/"selectFile"\s*:\s*"([^"]+)"/);
+  
+  if (lockMatch || selectFileMatch) {
+    return {
+      uiActions: {
+        lockCurrentDocument: lockMatch ? lockMatch[1] === 'true' : false,
+        selectFile: selectFileMatch ? selectFileMatch[1] : null
+      },
+      writeActions: [],
+      confirmations: [],
+    };
+  }
+
+  return null;
 }
 
 async function executeProtocol(store: any, protocol: any) {
@@ -1025,6 +1015,20 @@ function cleanText(text: string): string {
     .trim();
 }
 
+function repairJSON(jsonStr: string): string {
+  let s = jsonStr.trim();
+  s = s.replace(/\/\/.*$/gm, '');
+  s = s.replace(/\/\*[\s\S]*?\*\//g, '');
+  s = s.replace(/,\s*([}\]])/g, '$1');
+  const openBraces = (s.match(/{/g) || []).length;
+  const closeBraces = (s.match(/}/g) || []).length;
+  const openBrackets = (s.match(/\[/g) || []).length;
+  const closeBrackets = (s.match(/]/g) || []).length;
+  for (let i = 0; i < openBrackets - closeBrackets; i++) s += '\n]';
+  for (let i = 0; i < openBraces - closeBraces; i++) s += '\n}';
+  return s;
+}
+
 function parseQuestionsBlock(reply: string): ParsedQuestionBlock {
   // Extract ### 本轮问题 section
   const match = reply.match(/(?:##|###)\s*本轮问题[：:]?\s*\n([\s\S]*?)(?=\n(?:##|###)\s|\n```json\b|$)/);
@@ -1075,6 +1079,9 @@ function parseQuestionsBlock(reply: string): ParsedQuestionBlock {
       questions.push({ id, text, normalizedText: normText });
     }
   }
+
+  // Renumber questions sequentially from 1 to N
+  questions.forEach((q, idx) => { q.id = idx + 1; });
 
   return { sectionText, prefix, suffix, questions };
 }
@@ -1454,13 +1461,15 @@ export const useStore = create<AppState>()(
   temporaryActions: [],
   apiKey: '',
   model: 'mimo-v2.5-pro',
-  apiEndpoint: 'https://api.deepseek.com/v1/chat/completions',
+  apiEndpoint: 'https://api.xiaomimimo.com/v1/chat/completions',
   isLoading: false,
+  fileLoading: {},
   questionCount: 3,
   lockAdvance: null,
   retryPrompt: null,
   fileMessages: {},
   pendingAction: null,
+  pendingAttachments: undefined,
   upstreamSelection: null,
   questionGen: null,
 
@@ -1474,6 +1483,7 @@ export const useStore = create<AppState>()(
   },
 
   setPendingAction: (pa) => set({ pendingAction: pa }),
+  setPendingAttachments: (attachments) => set({ pendingAttachments: attachments }),
   setUpstreamSelection: (ids) => set({ upstreamSelection: ids }),
 
   confirmAndExec: (id, action) => {
@@ -1512,7 +1522,7 @@ export const useStore = create<AppState>()(
     fetch('/api/files?dir=letsgo/versions/' + id)
       .then((r) => r.json())
       .then((data: any[]) => {
-        const all = buildFileTree(data);
+        const all = buildFileTree(data, get().files);
         const aGroup = all.find((f) => f.id === 'group:a');
         const bGroup = all.find((f) => f.id === 'group:b');
         const defaultFileId = aGroup?.children?.[0]?.id ?? bGroup?.children?.[0]?.id ?? all.find((f) => !f.id.startsWith('group:'))?.id ?? '';
@@ -1532,10 +1542,12 @@ export const useStore = create<AppState>()(
     if (!file) return;
     if (file.type === 'folder' && file.children) return;
     const { activeFileId: oldId, messages: oldMsgs, fileMessages } = get();
+    console.log('[selectFile] switching from', oldId, 'to', id, 'oldMsgsLen=', oldMsgs.length, 'newMsgsLen=', fileMessages[id]?.length);
     // Save current messages to old file's slot
     const updatedFileMessages = { ...fileMessages, [oldId]: oldMsgs };
     // Restore messages for new file (or empty array)
     const newMessages = updatedFileMessages[id] || [{ id: 'm1', role: 'assistant' as const, content: '欢迎使用 AI 项目计划生成系统。请输入你的想法或目标，我来帮你逐步收敛为可执行的计划。', timestamp: '10:00' }];
+    console.log('[selectFile] restored messages len=', newMessages.length);
     set({ activeFileId: id, fileMessages: updatedFileMessages, messages: newMessages });
     if (file.type === 'folder') return;
     // Build path from id (which preserves full relative path like a/01-prd.md)
@@ -1560,11 +1572,11 @@ export const useStore = create<AppState>()(
   })),
 
   setInputText: (text) => set({ inputText: text }),
-  setPendingAttachments: (files) => set({ pendingAttachments: files }),
 
 
   sendMessage: async () => {
-    const { inputText, isReadOnly, apiKey, isLoading, activeFileId, files } = get();
+    const { inputText, isReadOnly, apiKey, activeFileId, files } = get();
+    const isLoading = get().fileLoading[activeFileId] ?? false;
     const text = inputText.trim();
     if (!text || isReadOnly || isLoading) return;
 
@@ -1593,14 +1605,18 @@ export const useStore = create<AppState>()(
       return;
     }
     const protocolPrefix = '【请在你的回复末尾输出 ```json 协议块，写入文档。】\n\n';
-    const augmentedText = text.startsWith('【请在你的回复末尾') ? text : protocolPrefix + text;
     const attachments = get().pendingAttachments;
-    const userMsg: ChatMessage = { id: 'm' + (msgCounter++), role: 'user', content: augmentedText, timestamp: now(), attachments: attachments && attachments.length > 0 ? attachments : undefined };
+    let attachmentPrefix = '';
+    if (attachments && attachments.length > 0) {
+      attachmentPrefix = attachments.map(a => `[用户上传的文件：${a.name}]\n\n${a.content}`).join('\n\n') + '\n\n';
+    }
+    const augmentedText = (attachmentPrefix + (text.startsWith('【请在你的回复末尾') ? text : protocolPrefix + text));
+    const userMsg: ChatMessage = { id: 'm' + (msgCounter++), role: 'user', content: augmentedText, timestamp: now(), attachments: attachments && attachments.length > 0 ? attachments.map(a => ({ name: a.name, size: a.size })) : undefined };
     set({ pendingAttachments: undefined });
     console.log('[sendMsg] ========== 用户发送消息 ==========');
     console.log('[sendMsg] 内容长度:', text.length, '当前文件:', activeFileId);
     console.log('[sendMsg] 消息内容:', text.slice(0, 500));
-    set((s) => ({ messages: [...s.messages, userMsg], inputText: '', isLoading: true }));
+    set((s) => ({ messages: [...s.messages, userMsg], inputText: '', fileLoading: { ...s.fileLoading, [s.activeFileId]: true } }));
 
     try {
       const questionCount = get().questionCount;
@@ -1665,7 +1681,7 @@ export const useStore = create<AppState>()(
           warnings: genState.warnings.join('; '),
         } : undefined,
       }];
-      const updates: any = { messages: newMsgs, isLoading: false, questionGen: genState };
+      const updates: any = { messages: newMsgs, fileLoading: { ...get().fileLoading, [get().activeFileId]: false }, questionGen: genState };
       if (parsedStage) {
         updates.versions = get().versions.map((v) => {
           if (v.id === get().activeVersionId) return { ...v, stage: parsedStage } as any;
@@ -1717,15 +1733,13 @@ export const useStore = create<AppState>()(
             }
           }
 
-          console.log('[autoWrite] sendMessage: 100ms 后执行 executeProtocol');
-          setTimeout(() => {
-            executeProtocol(get(), protocol).catch((err: any) => {
-              console.warn('[executeProtocol] failed', err);
-              set((s) => ({
-                messages: [...s.messages, { id: 'm' + (msgCounter++), role: 'assistant' as const, content: '自动回填失败: ' + (err?.message || String(err)), timestamp: now() }],
-              }));
-            });
-          }, 100);
+          console.log('[autoWrite] sendMessage: 直接执行 executeProtocol');
+          executeProtocol(get(), protocol).catch((err: any) => {
+            console.warn('[executeProtocol] failed', err);
+            set((s) => ({
+              messages: [...s.messages, { id: 'm' + (msgCounter++), role: 'assistant' as const, content: '自动回填失败: ' + (err?.message || String(err)), timestamp: now() }],
+            }));
+          });
         }
       }
     } catch (e: any) {
@@ -1736,7 +1750,7 @@ export const useStore = create<AppState>()(
         : '';
       set({
         retryPrompt: retryText,
-        isLoading: false,
+        fileLoading: { ...get().fileLoading, [get().activeFileId]: false },
       });
     }
   },
@@ -1834,7 +1848,6 @@ export const useStore = create<AppState>()(
   setFiles: (files) => set({ files }),
   setEditorLines: (lines) => set({ lines }),
   setApiKey: (key) => set({ apiKey: key }),
-  setModel: (model) => set({ model }),
   setApiEndpoint: (endpoint) => set({ apiEndpoint: endpoint }),
   setQuestionCount: (n) => set({ questionCount: n }),
 
@@ -1877,7 +1890,7 @@ export const useStore = create<AppState>()(
         .then((r) => r.json())
         .then((data: any[]) => {
           console.log('[genFiles] 重建文件树, 条目数=', data.length);
-          set({ files: buildFileTree(data) });
+          set({ files: buildFileTree(data, get().files) });
         })
         .catch(() => {});
     } catch (e) {
@@ -1982,13 +1995,16 @@ export const useStore = create<AppState>()(
       ? '【上游文档内容】\n' + upstreamContent + '\n\n【当前文档内容】\n' + rawSnapshot
       : rawSnapshot;
 
-    // Switch to new file
+    // Switch to new file (save old messages first)
+    const oldFileId = get().activeFileId;
+    const oldMsgs = get().messages;
     set({
       activeFileId: lockAdvance.nextFileId,
       lines,
       activeLineId: lines[0]?.id || '',
       messages: [],
-      isLoading: true,
+      fileMessages: { ...get().fileMessages, [oldFileId]: oldMsgs },
+      fileLoading: { ...get().fileLoading, [lockAdvance.nextFileId]: true },
       lockAdvance: null,
     });
 
@@ -2004,18 +2020,16 @@ export const useStore = create<AppState>()(
           content: visibleText, timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
           raw: reply, protocol, usage: usage ?? undefined,
         }],
-        isLoading: false,
+        fileLoading: { ...s.fileLoading, [lockAdvance.nextFileId]: false },
       }));
       if (protocol) {
-        setTimeout(() => {
-          executeProtocol(get(), protocol).catch((err: any) => console.warn('[autoStart] protocol error', err));
-        }, 100);
+        executeProtocol(get(), protocol).catch((err: any) => console.warn('[autoStart] protocol error', err));
       }
     } catch (e: any) {
       console.error('[autoStart] 失败:', e?.message || e, 'apiKey=', apiKey ? 'configured' : 'empty');
       set((s) => ({
         messages: [...s.messages, { id: 'm' + (msgCounter++), role: 'assistant' as const, content: '自动启动失败，请手动输入。', timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }],
-        isLoading: false,
+        fileLoading: { ...s.fileLoading, [lockAdvance.nextFileId]: false },
       }));
     }
   },
@@ -2195,6 +2209,8 @@ export const useStore = create<AppState>()(
       theme: state.theme,
       accent: state.accent,
       apiKey: state.apiKey,
+      model: state.model,
+      apiEndpoint: state.apiEndpoint,
       questionCount: state.questionCount,
       messages: state.messages,
       fileMessages: state.fileMessages,
@@ -2223,3 +2239,17 @@ export const useStore = create<AppState>()(
     },
   },
 ));
+
+// Auto-sync messages to fileMessages[activeFileId]
+useStore.subscribe((state, prevState) => {
+  if (state.messages !== prevState.messages) {
+    const { activeFileId, messages, fileMessages } = state;
+    console.log('[fileSync] messages changed, activeFileId=', activeFileId, 'fileMsgsLen=', fileMessages[activeFileId]?.length, 'msgsLen=', messages.length);
+    if (fileMessages[activeFileId] !== messages) {
+      console.log('[fileSync] syncing to fileMessages[', activeFileId, ']');
+      useStore.setState({
+        fileMessages: { ...fileMessages, [activeFileId]: messages },
+      });
+    }
+  }
+});

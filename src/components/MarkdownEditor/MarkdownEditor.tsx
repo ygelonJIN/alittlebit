@@ -62,12 +62,15 @@ function renderMd(text: string): JSX.Element[] {
 
 export default function MarkdownEditor({ isReadOnly, onCursorMove }: Props) {
   const lines = useStore((s) => s.lines);
+  const activeFileId = useStore((s) => s.activeFileId);
+  const activeVersionId = useStore((s) => s.activeVersionId);
   const selectLine = useStore((s) => s.selectLine);
   const setEditorLines = useStore((s) => s.setEditorLines);
   const [mode, setMode] = useState<'edit' | 'preview'>('edit');
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const text = lines.map((l) => l.text).join('\n');
 
@@ -76,6 +79,18 @@ export default function MarkdownEditor({ isReadOnly, onCursorMove }: Props) {
       gutterRef.current.scrollTop = textareaRef.current.scrollTop;
     }
   }, []);
+
+  // Auto-save to disk with debounce
+  const saveToDisk = useCallback((linesToSave: typeof lines) => {
+    if (!activeFileId || !activeVersionId) return;
+    const content = linesToSave.map(l => l.text).join('\n');
+    const relPath = `letsgo/versions/${activeVersionId}/${activeFileId}`;
+    fetch('/api/files/write', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filePath: relPath, content }),
+    }).catch(err => console.warn('[auto-save] failed:', err));
+  }, [activeFileId, activeVersionId]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (isReadOnly) return;
@@ -89,6 +104,10 @@ export default function MarkdownEditor({ isReadOnly, onCursorMove }: Props) {
       active: lines[i]?.active ?? false,
     }));
     setEditorLines(updatedLines);
+
+    // Debounce auto-save (500ms after last keystroke)
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => saveToDisk(updatedLines), 500);
   };
 
   const handleClick = () => {
@@ -107,6 +126,13 @@ export default function MarkdownEditor({ isReadOnly, onCursorMove }: Props) {
   useEffect(() => {
     syncScroll();
   });
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
 
   const lineCount = lines.length;
   const gutterNumbers = Array.from({ length: Math.max(lineCount, 1) }, (_, i) => i + 1);

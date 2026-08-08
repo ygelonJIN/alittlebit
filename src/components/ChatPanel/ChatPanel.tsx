@@ -163,7 +163,7 @@ function QuestionCard({ questions, onSelectionChange, answersRef, customRef, bat
                         {isSelfFill && selected[i] === j && (
                           <input
                             className="q-self-input"
-                            placeholder="请输入..."
+                            placeholder="请输入"
                             value={customAnswers[i] || ''}
                             onChange={(e) => {
                               setCustomAnswers(prev => ({ ...prev, [i]: e.target.value }));
@@ -207,20 +207,38 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const files = useStore((s) => s.files);
   const activeFileId = useStore((s) => s.activeFileId);
   const upstreamSelection = useStore((s) => s.upstreamSelection);
-  const setPendingAttachments = useStore((s) => s.setPendingAttachments);
   const setUpstreamSelection = useStore((s) => s.setUpstreamSelection);
+  const pendingAttachments = useStore((s) => s.pendingAttachments);
+  const setPendingAttachments = useStore((s) => s.setPendingAttachments);
   const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(new Set());
   const isComposing = useRef(false);
   const [questionCompleted, setQuestionCompleted] = useState(0);
   const selectedAnswers = useRef<Record<string, Record<number, { label: string; custom: string }>>>({});
   const customRef = useRef<Record<string, Record<number, string>>>({});
   const [inputExpanded, setInputExpanded] = useState(false);
-  const [activeMode, setActiveMode] = useState<'submit' | 'reply' | null>(null);
+  const [activeMode, setActiveMode] = useState<'submit' | 'reply' | 'change' | null>(null);
   const [changeMode, setChangeMode] = useState(false);
   const composerRef = useRef<HTMLDivElement>(null);
-  const chatBodyRef = useRef<HTMLDivElement>(null);
-  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; content: string; size: number }>>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = e.target.files;
+    if (!fileList || fileList.length === 0) return;
+    const file = fileList[0];
+    if (!file.name.endsWith('.md') && !file.name.endsWith('.txt')) {
+      return; // only .md/.txt
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const content = ev.target?.result as string;
+      setPendingAttachments([
+        ...(pendingAttachments || []),
+        { name: file.name, content, size: file.size },
+      ]);
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // reset for re-select
+  };
 
   // Compute all A docs except current, split by position
   const aGroup = files.find(f => f.id === 'group:a');
@@ -258,33 +276,6 @@ export default function ChatPanel({ isReadOnly }: Props) {
     }
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-    
-    Array.from(files).forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const content = event.target?.result as string;
-        setUploadedFiles(prev => [...prev, { 
-          name: file.name, 
-          content, 
-          size: file.size 
-        }]);
-      };
-      reader.readAsText(file);
-    });
-    
-    // Reset input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const removeFile = (index: number) => {
-    setUploadedFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
   const handleCompositionEnd = () => {
     isComposing.current = true;
     setTimeout(() => { isComposing.current = false; }, 0);
@@ -315,38 +306,21 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const doSend = () => {
     if (isLoading || isReadOnly) return;
     const text = inputText.trim();
-    if (!text && uploadedFiles.length === 0) return;
-    
-    // Build message with files
-    let message = text;
-    if (uploadedFiles.length > 0) {
-      const filesContent = uploadedFiles.map(f => 
-        `[用户上传的文件：${f.name}]\n\n${f.content}`
-      ).join('\n\n---\n\n');
-      message = text ? `${text}\n\n${filesContent}` : filesContent;
-      // Store attachment info for display (content goes to AI, only name+size shown in UI)
-      setPendingAttachments(uploadedFiles.map(f => ({ name: f.name, size: f.size })));
-    } else {
-      setPendingAttachments(undefined);
-    }
-    
+    if (!text) return;
     if (activeMode === 'reply') {
-      const tagged = `【inputType=answer】\n` + message;
+      const tagged = `【inputType=answer】\n` + text;
       setInputText(tagged);
       setTimeout(() => sendMessage(), 50);
     } else if (activeMode === 'change') {
-      const tagged = `【inputType=change】\n` + message;
+      const tagged = `【inputType=change】\n` + text;
       setInputText(tagged);
       setTimeout(() => sendMessage(), 50);
     } else {
       // Cold start: no active mode, default to answer
-      const tagged = `【inputType=answer】\n` + message;
+      const tagged = `【inputType=answer】\n` + text;
       setInputText(tagged);
       setTimeout(() => sendMessage(), 50);
     }
-    
-    // Clear uploaded files after send
-    setUploadedFiles([]);
   };
 
   const openMode = (mode: 'submit' | 'reply') => {
@@ -363,16 +337,6 @@ export default function ChatPanel({ isReadOnly }: Props) {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
-
-  // Auto-scroll to latest message
-  useEffect(() => {
-    if (chatBodyRef.current) {
-      const lastMsg = chatBodyRef.current.querySelector('.msg-user:last-child, .msg-assistant:last-child, .loading-msg:last-child');
-      if (lastMsg) {
-        lastMsg.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    }
-  }, [messages.length, isLoading]);
 
   // On mount: check for interrupted session (last message is user = no AI reply received)
   useEffect(() => {
@@ -397,28 +361,10 @@ export default function ChatPanel({ isReadOnly }: Props) {
 
   return (
     <div className="chat">
-      <div className="chat-body" ref={chatBodyRef}>
+      <div className="chat-body">
         {messages.map((m) => {
             if (m.role === 'user') {
-              const displayContent = m.content
-                .replace(/【inputType=(?:answer|change)】\n/, '')
-                .replace(/【请在你的回复末尾输出.*?】\n\n/, '')
-                .replace(/\n*\[用户上传的文件：[\s\S]*$/, '').trim();
-              return (
-                <div key={m.id} className="msg-user">
-                  <div className="msg-user-content">{displayContent}</div>
-                  {m.attachments && m.attachments.length > 0 && (
-                    <div className="msg-user-attachments">
-                      {m.attachments.map((f, i) => (
-                        <span key={i} className="msg-attachment">
-                          <span className="attachment-name">{f.name}</span>
-                          <span className="attachment-size">({(f.size / 1024).toFixed(1)} KB)</span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
+              return <div key={m.id} className="msg-user">{m.content.replace(/【inputType=(?:answer|change)】\n/, '').replace(/【请在你的回复末尾输出.*?】\n\n/, '')}</div>;
             }
             const { restContent, questions } = parseQuestions(m.content);
             return (
@@ -482,76 +428,71 @@ export default function ChatPanel({ isReadOnly }: Props) {
       {(!hasQuestions || activeMode !== null || (hasQuestions && activeMode === null)) && (
         <div className="composer" ref={composerRef}>
           <div className={`input${isReadOnly ? ' readonly' : ''}`}>
+            {allOtherAFiles.length > 0 && (
+              <div className="context-sources-bar">
+                <span className="context-sources-label">上下文来源</span>
+                {[...beforeFiles, ...afterFiles].map(f => {
+                  const isSelected = effectiveSelection.includes(f.id);
+                  return (
+                    <button
+                      key={f.id}
+                      className={`upstream-chip${isSelected ? ' active' : ''}`}
+                      onClick={() => toggleUpstream(f.id)}
+                    >
+                      {f.name.replace('.md', '')}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             {hasQuestions && activeMode === null ? (
               <div className="mode-panel mode-panel-actions">
-                {allOtherAFiles.length > 0 && (
-                  <div className="context-sources-bar">
-                    <span className="context-sources-label">上下文来源</span>
-                    {[...beforeFiles, ...afterFiles].map(f => {
-                      const isSelected = effectiveSelection.includes(f.id);
-                      return (
-                        <button
-                          key={f.id}
-                          className={`upstream-chip${isSelected ? ' active' : ''}`}
-                          onClick={() => toggleUpstream(f.id)}
-                        >
-                          {f.name.replace('.md', '')}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
                 <div className="mode-panel-actions-row">
                   <button className="chat-submit-btn" disabled={isLoading} onClick={submitOptions}>提交选项</button>
                   <button className={`chat-submit-btn${activeMode === 'reply' ? ' active' : ''}`} disabled={isLoading} onClick={() => openMode('reply')}>输入回复</button>
                 </div>
               </div>
             ) : (
-              <div className="mode-panel mode-panel-compose">
+              <div className={`mode-panel mode-panel-compose${inputExpanded ? ' expanded' : ''}`}>
                 <div className="textarea-wrap">
                   <textarea
                     className="input-textarea"
-                    style={{ minHeight: inputExpanded ? 280 : 40 }}
+                    style={{ minHeight: inputExpanded ? 280 : 0 }}
                     value={isReadOnly ? '' : inputText}
                     onChange={(e) => setInputText(e.target.value)}
                     onKeyDown={handleKeyDown}
                     onCompositionStart={() => { isComposing.current = true; }}
                     onCompositionEnd={handleCompositionEnd}
-                    placeholder="请输入..."
-                    rows={3}
+                    placeholder="请输入"
                     disabled={isReadOnly || isLoading}
                   />
                   <button className="expand-btn" onClick={() => setInputExpanded(!inputExpanded)} title={inputExpanded ? '收起' : '放大'}>
                     <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 8 Q6 4 10 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M2 4.5 Q6 0.5 10 4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
                   </button>
                 </div>
-                {uploadedFiles.length > 0 && (
-                  <div className="uploaded-files">
-                    {uploadedFiles.map((file, index) => (
-                      <div key={index} className="uploaded-file">
-                        <span className="file-name">{file.name}</span>
-                        <span className="file-size">({(file.size / 1024).toFixed(1)} KB)</span>
-                        <button className="remove-file" onClick={() => removeFile(index)}>×</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
                 <div className="footer">
                   <input
-                    type="file"
                     ref={fileInputRef}
-                    onChange={handleFileUpload}
+                    type="file"
                     accept=".md,.txt"
-                    multiple
                     style={{ display: 'none' }}
+                    onChange={handleFileChange}
                   />
-                  <button 
-                    className="btn upload-btn"
-                    onClick={() => fileInputRef.current?.click()}
-                    title="上传文件"
-                  >
-                    添加文件
-                  </button>
+                  <button className="btn" onClick={() => fileInputRef.current?.click()}>添加文件</button>
+                  {pendingAttachments && pendingAttachments.length > 0 && (
+                    <div className="uploaded-files">
+                      {pendingAttachments.map((a, i) => (
+                        <span key={i} className="uploaded-file">
+                          <span className="file-name">{a.name}</span>
+                          <span className="file-size">({(a.size / 1024).toFixed(1)}KB)</span>
+                          <button className="remove-file" onClick={() => {
+                            const next = pendingAttachments.filter((_, idx) => idx !== i);
+                            setPendingAttachments(next.length > 0 ? next : undefined);
+                          }}>×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <button
                     className={`btn-correction${changeMode ? ' active' : ''}`}
                     onClick={() => setChangeMode(!changeMode)}
