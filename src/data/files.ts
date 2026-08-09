@@ -4,7 +4,7 @@ export interface FileItem {
   type: 'folder' | 'md' | 'json' | 'log' | 'diff';
   status?: 'normal' | 'draft' | 'frozen' | 'archived';
   active?: boolean;
-  category?: 'a' | 'b' | 'c' | 'd' | 'x';
+  category?: 'a' | 'b' | 'c' | 'x';
   children?: FileItem[];
   light?: 'gray' | 'green'; // only for A group files
   hasTemplate?: boolean;

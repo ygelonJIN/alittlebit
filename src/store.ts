@@ -466,8 +466,7 @@ function buildFileTree(data: any[], prevFiles?: FileItem[]): FileItem[] {
   }
   groups.push({ id: 'group:a', name: 'A 核心产出文档', type: 'folder', category: 'a', children: aChildren });
   groups.push({ id: 'group:b', name: 'B 治理文档', type: 'folder', category: 'b', children: bChildren });
-  groups.push({ id: 'group:c', name: 'C 差异文档', type: 'folder', category: 'c', children: cChildren });
-  groups.push({ id: 'group:d', name: 'D 主入口索引', type: 'folder', category: 'd', children: [{ id: 'current/latest_plan.md', name: 'latest_plan.md', type: 'md', category: 'd' }] });
+  groups.push({ id: 'group:c', name: 'C 使用指南', type: 'folder', category: 'c', children: cChildren });
   return [...groups, ...rootFiles];
 }
 
@@ -1596,8 +1595,9 @@ export const useStore = create<AppState>()(
         const bGroup = all.find((f) => f.id === 'group:b');
         const cGroup = all.find((f) => f.id === 'group:c');
         const cReadme = cGroup?.children?.find((f) => f.name === 'README.md');
-        const isFirstVisit = !localStorage.getItem('alittlebit-storage');
+        const isFirstVisit = !localStorage.getItem('alittlebit-welcomed');
         const defaultFileId = isFirstVisit && cReadme ? cReadme.id : (aGroup?.children?.[0]?.id ?? bGroup?.children?.[0]?.id ?? all.find((f) => !f.id.startsWith('group:'))?.id ?? '');
+        if (isFirstVisit && cReadme) localStorage.setItem('alittlebit-welcomed', '1');
         set({ files: all, activeFileId: defaultFileId });
         if (defaultFileId) get().selectFile(defaultFileId);
       })
