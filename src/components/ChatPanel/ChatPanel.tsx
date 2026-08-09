@@ -232,6 +232,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const sendMessage = useStore((s) => s.sendMessage);
   const fileLoading = useStore((s) => s.fileLoading);
   const activeFileId = useStore((s) => s.activeFileId);
+  const isAnyLoading = Object.values(fileLoading).some(Boolean);
   const isLoading = fileLoading[activeFileId] ?? false;
   const apiKey = useStore((s) => s.apiKey);
   const lockAdvance = useStore((s) => s.lockAdvance);
@@ -290,14 +291,14 @@ export default function ChatPanel({ isReadOnly }: Props) {
     }
   }, [messages.length, isLoading]);
 
-  // Thinking timer - use Date for accurate time
+  // Thinking timer - use Date for accurate time, uses isAnyLoading to persist across document switches
   useEffect(() => {
-    if (isLoading && !thinkingTimerRef.current) {
+    if (isAnyLoading && !thinkingTimerRef.current) {
       thinkingStartRef.current = Date.now();
       thinkingTimerRef.current = setInterval(() => {
         setThinkingTime(Math.floor((Date.now() - thinkingStartRef.current) / 1000));
       }, 1000);
-    } else if (!isLoading && thinkingTimerRef.current) {
+    } else if (!isAnyLoading && thinkingTimerRef.current) {
       clearInterval(thinkingTimerRef.current);
       thinkingTimerRef.current = null;
       const finalTime = Math.floor((Date.now() - thinkingStartRef.current) / 1000);
@@ -317,7 +318,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
         clearInterval(thinkingTimerRef.current);
       }
     };
-  }, [isLoading]);
+  }, [isAnyLoading]);
 
 
 
@@ -549,6 +550,17 @@ export default function ChatPanel({ isReadOnly }: Props) {
           </div>
         </div>
       )}
+      {uploadedFiles.length > 0 && (
+        <div className="uploaded-files-bar">
+          {uploadedFiles.map((file, index) => (
+            <div key={index} className="uploaded-file-item">
+              <span className="file-name">{file.name}</span>
+              <span className="file-size">({(file.size / 1024).toFixed(1)} KB)</span>
+              <button className="remove-file" onClick={() => removeFile(index)}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
       {(!hasQuestions || activeMode !== null || (hasQuestions && activeMode === null)) && (
         <div className="composer" ref={composerRef}>
           <div className={`input${isReadOnly ? ' readonly' : ''}`}>
@@ -594,17 +606,6 @@ export default function ChatPanel({ isReadOnly }: Props) {
                     <svg width="12" height="12" viewBox="0 0 12 12"><path d="M1 11 L1 1 L11 1" fill="none" stroke="var(--accent-solid)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M4 8 L4 4 L8 4" fill="none" stroke="var(--accent-solid)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   </button>
                 </div>
-                {uploadedFiles.length > 0 && (
-                  <div className="uploaded-files">
-                    {uploadedFiles.map((file, index) => (
-                      <div key={index} className="uploaded-file">
-                        <span className="file-name">{file.name}</span>
-                        <span className="file-size">({(file.size / 1024).toFixed(1)} KB)</span>
-                        <button className="remove-file" onClick={() => removeFile(index)}>×</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
                 <div className="footer">
                   <input
                     ref={fileInputRef}

@@ -808,3 +808,39 @@
 }
 
 
+
+.uploaded-files-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 8px 16px;
+  margin: 0 16px 8px;
+  background: var(--accent-soft);
+  border: none;
+  border-left: 3px solid var(--accent-solid);
+  font-size: 13px;
+}
+.uploaded-file-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.uploaded-file-item .file-name {
+  font-weight: 600;
+  color: var(--text);
+}
+.uploaded-file-item .file-size {
+  color: var(--muted);
+}
+.uploaded-file-item .remove-file {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+}
+.uploaded-file-item .remove-file:hover {
+  color: #ff4d4f;
+}
