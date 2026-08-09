@@ -227,6 +227,8 @@ function QuestionCard({ questions, onSelectionChange, answersRef, customRef, bat
 
 export default function ChatPanel({ isReadOnly }: Props) {
   const messages = useStore((s) => s.messages);
+  const streamingMsgId = useStore((s) => s.streamingMsgId);
+  const streamingMsg = streamingMsgId ? messages.find(m => m.id === streamingMsgId) : null;
   const inputText = useStore((s) => s.inputText);
   const setInputText = useStore((s) => s.setInputText);
   const sendMessage = useStore((s) => s.sendMessage);
@@ -248,6 +250,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const pendingAttachments = useStore((s) => s.pendingAttachments);
   const setPendingAttachments = useStore((s) => s.setPendingAttachments);
   const [expandedMsgs, setExpandedMsgs] = useState<Set<string>>(new Set());
+  const [expandedThinking, setExpandedThinking] = useState<Set<string>>(new Set());
   const isComposing = useRef(false);
   const [questionCompleted, setQuestionCompleted] = useState(0);
   const selectedAnswers = useRef<Record<string, Record<number, { label: string; custom: string }>>>({});
@@ -261,7 +264,6 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const [activeMode, setActiveMode] = useState<'submit' | 'reply' | 'change' | null>(null);
   const [changeMode, setChangeMode] = useState(false);
   const composerRef = useRef<HTMLDivElement>(null);
-  const chatBodyRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; content: string; size: number }>>([]);
 
@@ -282,14 +284,56 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const removeFile = (index: number) => {
     setUploadedFiles(prev => prev.filter((_, i) => i !== index));
   };
+  const chatBodyRef = useRef<HTMLDivElement>(null);
+  const userScrolledRef = useRef(false);
+  const reasoningBodyRef = useRef<HTMLPreElement>(null);
+  const reasoningScrolledRef = useRef(false);
 
-  // Auto-scroll to latest message
+  // Detect user manual scroll
   useEffect(() => {
-    if (chatBodyRef.current) {
-      const lastMsg = chatBodyRef.current.querySelector('.msg-user:last-child, .msg-assistant:last-child, .loading-msg:last-child');
-      if (lastMsg) lastMsg.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const el = chatBodyRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+      userScrolledRef.current = !atBottom;
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Auto-scroll to latest message (respects user scroll)
+  useEffect(() => {
+    if (!userScrolledRef.current && chatBodyRef.current) {
+      chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
     }
-  }, [messages.length, isLoading]);
+  }, [messages, isLoading]);
+
+  // Auto-scroll chat body when reasoning is expanded/collapsed
+  useEffect(() => {
+    if (chatBodyRef.current) chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
+    // Also scroll reasoning block to bottom after DOM update
+    requestAnimationFrame(() => {
+      const el = reasoningBodyRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+  }, [expandedThinking]);
+
+  // Auto-scroll reasoning block during streaming
+  useEffect(() => {
+    const el = reasoningBodyRef.current;
+    if (el && !reasoningScrolledRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [streamingMsg?.reasoning]);
+
+  // Reset reasoning scroll tracking when new streaming starts
+  const prevStreamingIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    reasoningScrolledRef.current = false;
+    if (streamingMsgId) setExpandedThinking(prev => new Set(prev).add(streamingMsgId));
+    else if (prevStreamingIdRef.current) setExpandedThinking(prev => { const n = new Set(prev); n.delete(prevStreamingIdRef.current!); return n; });
+    prevStreamingIdRef.current = streamingMsgId;
+  }, [streamingMsgId]);
 
   // Thinking timer - use Date for accurate time, uses isAnyLoading to persist across document switches
   useEffect(() => {
@@ -392,6 +436,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
 
   const doSend = () => {
     setThinkingTime(0);
+    userScrolledRef.current = false;
     if (isLoading || isReadOnly) return;
     const text = inputText.trim();
     if (!text && uploadedFiles.length === 0) return;
@@ -516,17 +561,35 @@ export default function ChatPanel({ isReadOnly }: Props) {
                     提示词 {m.usage.prompt.toLocaleString()} + 补全 {m.usage.completion.toLocaleString()} = {m.usage.total.toLocaleString()} token
                   </div>
                 )}
-                {m.thinkingTime && (
-                  <div className="thinking-time">
-                    思考时间 {m.thinkingTime}s
-                  </div>
+                {m.reasoning && m.thinkingTime && (
+                  <>
+                    <div className="thinking-toggle" onClick={() => setExpandedThinking(prev => { const n = new Set(prev); n.has(m.id) ? n.delete(m.id) : n.add(m.id); return n; })}>
+                      思考 {m.thinkingTime}s <span className="thinking-arrow">{expandedThinking.has(m.id) ? '▲' : '▼'}</span>
+                    </div>
+                    {expandedThinking.has(m.id) && (
+                      <pre className="reasoning-block">{m.reasoning}</pre>
+                    )}
+                  </>
                 )}
 
               </div>
             );
           })}
-        {isLoading && (
+        {isLoading && !streamingMsg?.reasoning && (
           <div className="loading-msg"><em>AI 思考中... {thinkingTime}s</em></div>
+        )}
+        {isLoading && streamingMsg?.reasoning && (
+          <div className="loading-msg">
+            <div className="thinking-toggle" onClick={() => setExpandedThinking(prev => { const n = new Set(prev); n.has(streamingMsgId!) ? n.delete(streamingMsgId!) : n.add(streamingMsgId!); return n; })}>
+              AI 思考中... {thinkingTime}s <span className="thinking-arrow">{expandedThinking.has(streamingMsgId!) ? '▲' : '▼'}</span>
+            </div>
+            {expandedThinking.has(streamingMsgId!) && (
+              <pre className="reasoning-block streaming" ref={reasoningBodyRef} onScroll={() => {
+                const el = reasoningBodyRef.current;
+                if (el) reasoningScrolledRef.current = el.scrollHeight - el.scrollTop - el.clientHeight > 30;
+              }}>{streamingMsg.reasoning}</pre>
+            )}
+          </div>
         )}
         <div className="new-session-bar">
           <button className="btn new-session-btn" onClick={() => { useStore.getState().clearMessages(); }}>新开 Session</button>

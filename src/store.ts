@@ -78,6 +78,7 @@ export interface AppState {
   upstreamSelection: string[] | null;
   setUpstreamSelection: (ids: string[] | null) => void;
   questionGen: QuestionGenState | null;
+  streamingMsgId: string | null;
 }
 
 // ── Heading node (for document section matching) ──
@@ -622,13 +623,13 @@ function mergeAContent(currentContent: string, action: any): MergeResult {
     return { ok: false, content: currentContent, reason: 'not_found' };
   }
 
-  // Level-aware stray header cleaning: only cut at sibling/parent headers, keep sub-headers
+  // Level-aware stray header cleaning: only cut at numbered section headers (e.g., "## 2. XXX"), keep sub-headers
   const targetLevel = match.node.level;
   const instLines = instruction.split('\n');
   let cutIdx = instLines.length;
   for (let i = 0; i < instLines.length; i++) {
     const m = instLines[i].match(/^(#{1,6})\s+/);
-    if (m && m[1].length <= targetLevel) {
+    if (m && m[1].length <= targetLevel && /^\d+\.\s/.test(instLines[i].replace(/^#+\s*/, ''))) {
       cutIdx = i;
       break;
     }
@@ -796,6 +797,7 @@ function repairJSON(jsonStr: string): string {
 }
 
 function extractProtocol(aiResponse: string): any | null {
+  console.log("[extractProtocol] input length:", aiResponse?.length, "前100字:", aiResponse?.slice(0, 100));
   if (!aiResponse) return null;
 
   // Core fix: use bracket stack depth to extract JSON blocks, find the one with protocol fields
@@ -828,6 +830,7 @@ function extractProtocol(aiResponse: string): any | null {
       const parsed = JSON.parse(rawJsonString);
       // Check if this block has protocol fields (writeActions/uiActions/currentDocument)
       if (parsed && (parsed.writeActions || parsed.uiActions || parsed.currentDocument || parsed.documentChain)) {
+        console.log("[extractProtocol] found protocol block, keys:", Object.keys(parsed), "writeActions:", parsed.writeActions?.length);
         return parsed; // Found protocol block
       }
       // Save first valid JSON as fallback (in case no protocol block found)
@@ -1098,7 +1101,7 @@ function cleanText(text: string): string {
     .trim();
 }
 function parseQuestionsBlock(reply: string): ParsedQuestionBlock {
-  const match = reply.match(/###\s*本轮问题[\s\S]*?(?=\n###|\n```|$)/);
+  const match = reply.match(/###\s*本轮问题\s*\n([\s\S]*?)(?=\n###|\n```|$)/);
   if (!match) return { sectionText: ', prefix: reply, suffix: ', questions: [] };
 
   const sectionText = match[0];
@@ -1227,7 +1230,7 @@ function validateQuestionBlock(block: ParsedQuestionBlock, targetCount: number):
 
 interface TokenUsage { prompt: number; completion: number; total: number; }
 
-async function callAI(apiKey: string, endpoint: string, model: string, msgs: ChatMessage[], versions: any[], activeId: string, questionCount: number, files: FileItem[], activeFileId: string, snapshot: string, retryContext?: string): Promise<{ content: string; usage: TokenUsage | null }> {
+async function callAI(apiKey: string, endpoint: string, model: string, msgs: ChatMessage[], versions: any[], activeId: string, questionCount: number, files: FileItem[], activeFileId: string, snapshot: string, retryContext?: string, onChunk?: (reasoning: string, content: string) => void): Promise<{ content: string; reasoning?: string; usage: TokenUsage | null }> {
   let runtimeCtx = buildRuntimeContext(questionCount, versions, activeId, files, activeFileId, snapshot);
   if (retryContext) runtimeCtx = retryContext + '\n\n' + runtimeCtx;
 
@@ -1240,25 +1243,58 @@ async function callAI(apiKey: string, endpoint: string, model: string, msgs: Cha
   ];
   console.log('[callAI] msgs=' + msgList.length + ' | ' + msgList.map(m => m.role[0] + ':' + m.content.length).join(' '));
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30000);
+  const timer = setTimeout(() => controller.abort(), 60000);
   try {
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + apiKey },
-      body: JSON.stringify({ model, messages: msgList, temperature: 0.7, max_tokens: 16384 }),
+      body: JSON.stringify({ model, messages: msgList, temperature: 0.7, max_tokens: 16384, stream: !!onChunk }),
       signal: controller.signal,
     });
     clearTimeout(timer);
     if (!res.ok) { const err = await res.text(); throw new Error('API error ' + res.status + ': ' + err); }
-    const data = await res.json();
-    const rawReply = data.choices?.[0]?.message?.content ?? '';
-    console.log('[callAI] AI 原始回复长度:', rawReply.length);
-    console.log('[callAI] AI 回复末尾 200 字符:', rawReply.slice(-200));
-    const u = data.usage;
-    return {
-      content: data.choices?.[0]?.message?.content ?? '',
-      usage: u ? { prompt: u.prompt_tokens, completion: u.completion_tokens, total: u.total_tokens } : null,
-    };
+
+    if (onChunk) {
+      // Streaming mode
+      let accReasoning = '';
+      let accContent = '';
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop()!;
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(data);
+            const delta = parsed.choices?.[0]?.delta;
+            if (delta?.reasoning_content) { accReasoning += delta.reasoning_content; onChunk(accReasoning, accContent); }
+            if (delta?.content) { accContent += delta.content; onChunk(accReasoning, accContent); }
+          } catch {}
+        }
+      }
+      console.log('[callAI] streaming done, reasoning:', accReasoning.length, 'content:', accContent.length);
+      return { content: accContent, reasoning: accReasoning || undefined, usage: null };
+    } else {
+      // Non-streaming mode
+      const data = await res.json();
+      const rawReply = data.choices?.[0]?.message?.content ?? '';
+      const reasoning = data.choices?.[0]?.message?.reasoning_content ?? '';
+      console.log('[callAI] AI 原始回复长度:', rawReply.length, '思考长度:', reasoning.length);
+      console.log('[callAI] AI 回复末尾 200 字符:', rawReply.slice(-200));
+      const u = data.usage;
+      return {
+        content: rawReply,
+        reasoning: reasoning || undefined,
+        usage: u ? { prompt: u.prompt_tokens, completion: u.completion_tokens, total: u.total_tokens } : null,
+      };
+    }
   } finally {
     clearTimeout(timer);
   }
@@ -1541,6 +1577,7 @@ export const useStore = create<AppState>()(
   pendingAttachments: undefined,
   upstreamSelection: null,
   questionGen: null,
+  streamingMsgId: null,
 
   setTheme: (theme) => {
     applyThemeMode(theme);
@@ -1715,14 +1752,29 @@ export const useStore = create<AppState>()(
       const snapshot = upstreamContent
         ? '【上游文档内容】\n' + upstreamContent + '\n\n【当前文档内容】\n' + rawSnapshot
         : rawSnapshot;
-      const { content: reply, usage: firstUsage } = await callAI(apiKey, get().apiEndpoint, get().model, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot);
+      // Create empty assistant message for streaming updates
+      const streamMsgId = 'm' + (msgCounter++);
+      const streamMsg: ChatMessage = { id: streamMsgId, role: 'assistant', content: '', timestamp: now(), reasoning: '' };
+      set({ messages: [...get().messages, streamMsg], streamingMsgId: streamMsgId });
+      const { content: reply, usage: firstUsage, reasoning } = await callAI(apiKey, get().apiEndpoint, get().model, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot,
+        undefined, (accReasoning, accContent) => {
+          // Strip JSON protocol block from streaming display (complete and incomplete)
+          const visible = accContent.replace(/```json[\s\S]*?```/g, '').replace(/```json[\s\S]*$/g, '').trim();
+          const msgs = get().messages.map(m => m.id === streamMsgId ? { ...m, reasoning: accReasoning, content: visible || accContent } : m);
+          set({ messages: msgs });
+        }
+      );
+      set({ streamingMsgId: null });
+      console.log('[autoWrite] callAI returned, reply length:', reply?.length, 'reasoning length:', reasoning?.length);
       const parsedStage = parseStage(reply);
 
       // ── 校验门禁 (questionCount > 1 时启用) ──
       let finalReply = reply;
       let genState: QuestionGenState | null = null;
       let totalUsage: TokenUsage = firstUsage ?? { prompt: 0, completion: 0, total: 0 };
+      console.log('[autoWrite] questionCount:', questionCount, 'firstUsage:', firstUsage);
       if (questionCount > 1) {
+        console.log('[autoWrite] 进入 ensureQuestionCount...');
         const result = await ensureQuestionCount(reply, questionCount, snapshot,
           apiKey, get().apiEndpoint, get().model, get().messages, get().versions, get().activeVersionId,
           get().files, get().activeFileId);
@@ -1739,17 +1791,20 @@ export const useStore = create<AppState>()(
       }
 
       // Strip JSON protocol block from visible text
+      console.log('[autoWrite] finalReply 前200字:', finalReply.slice(0, 200));
       const hasJsonBlock = finalReply.includes('```json');
       console.log('[autoWrite] sendMessage: AI 回复长度=', finalReply.length, '包含```json?', hasJsonBlock);
       if (!hasJsonBlock) {
         console.log('[autoWrite] sendMessage: AI 回复末尾 300 字符:', finalReply.slice(-300));
       }
       const visibleText = finalReply.replace(/```json[\s\S]*?```/g, '').trim() || finalReply;
-      const newMsgs = [...get().messages, {
-        id: 'm' + (msgCounter++), role: 'assistant' as const,
-        content: visibleText, timestamp: now(),
+      // Update the existing streaming message with final content
+      const newMsgs = get().messages.map(m => m.id === streamMsgId ? {
+        ...m,
+        content: visibleText,
         raw: finalReply, protocol: extractProtocol(finalReply),
         usage: totalUsage.total > 0 ? totalUsage : undefined,
+        reasoning,
         questionGenMeta: genState ? {
           attempted: genState.attempt > 0,
           attemptCount: genState.attempt,
@@ -1758,7 +1813,7 @@ export const useStore = create<AppState>()(
           finalStatus: genState.status === 'done' ? 'success' : 'failed',
           warnings: genState.warnings.join('; '),
         } : undefined,
-      }];
+      } : m);
       const updates: any = { messages: newMsgs, fileLoading: { ...get().fileLoading, [get().activeFileId]: false }, questionGen: genState };
       if (parsedStage) {
         updates.versions = get().versions.map((v) => {
@@ -1770,7 +1825,7 @@ export const useStore = create<AppState>()(
 
       // Execute protocol from parsed message
       const protocol = newMsgs[newMsgs.length - 1].protocol;
-      console.log('[autoWrite] sendMessage: protocol 存在?', !!protocol);
+      console.log('[autoWrite] sendMessage: protocol 存在?', !!protocol, 'writeActions:', protocol?.writeActions?.length, 'keys:', protocol ? Object.keys(protocol) : 'null');
       if (!protocol) {
         // ── 协议缺失重试：请求 AI 补输出协议块 ──
         console.log('[autoWrite] sendMessage: 协议缺失, 触发重试');
@@ -1839,6 +1894,7 @@ export const useStore = create<AppState>()(
         }
       }
     } catch (e: any) {
+      console.error('[autoWrite] sendMessage 异常:', e.message, e.stack);
       // Store retry info so UI can show a retry bar on reload
       const lastUserMsg = [...get().messages].reverse().find(m => m.role === 'user');
       const retryText = lastUserMsg

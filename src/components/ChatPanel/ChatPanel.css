@@ -469,7 +469,7 @@
   margin: 0;
   overflow-x: auto;
   white-space: pre;
-  max-height: 300px;
+  max-height: 400px;
   overflow-y: auto;
 }
 
@@ -843,4 +843,41 @@
 }
 .uploaded-file-item .remove-file:hover {
   color: #ff4d4f;
+}
+
+.reasoning-block {
+  margin: 4px 0;
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.03);
+  border-left: 2px solid var(--muted);
+  font-size: 12px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+  line-height: 1.5;
+}
+
+
+.thinking-toggle {
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.thinking-toggle:hover {
+  opacity: 0.8;
+}
+.thinking-enlarge:hover {
+  opacity: 1;
+}
+
+.thinking-arrow {
+  font-size: 10px;
+  opacity: 0.6;
+}
+.thinking-toggle:hover .thinking-arrow {
+  opacity: 1;
 }

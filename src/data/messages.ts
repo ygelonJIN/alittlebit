@@ -16,6 +16,7 @@ export interface ChatMessage {
   };
   attachments?: Array<{ name: string; size: number }>;
   thinkingTime?: number;
+  reasoning?: string;
 }
 
 export const messages: ChatMessage[] = [
