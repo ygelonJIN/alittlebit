@@ -129,6 +129,7 @@ interface QuestionValidation {
 }
 
 let msgCounter = 10;
+let _welcomedThisSession = false;
 const now = () => new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 
 function nextVersionName(title: string): string {
@@ -1595,9 +1596,12 @@ export const useStore = create<AppState>()(
         const bGroup = all.find((f) => f.id === 'group:b');
         const cGroup = all.find((f) => f.id === 'group:c');
         const cReadme = cGroup?.children?.find((f) => f.name === 'README.md');
-        const isFirstVisit = !localStorage.getItem('alittlebit-welcomed');
+        const isFirstVisit = !localStorage.getItem('alittlebit-welcomed') && !_welcomedThisSession;
+        console.log('[selectVersion] isFirstVisit=', isFirstVisit, 'cReadme=', cReadme?.id, 'aFirst=', aGroup?.children?.[0]?.id);
+        const currentActive = get().activeFileId;
+        if (isFirstVisit && cReadme) { _welcomedThisSession = true; localStorage.setItem('alittlebit-welcomed', '1'); }
         const defaultFileId = isFirstVisit && cReadme ? cReadme.id : (aGroup?.children?.[0]?.id ?? bGroup?.children?.[0]?.id ?? all.find((f) => !f.id.startsWith('group:'))?.id ?? '');
-        if (isFirstVisit && cReadme) localStorage.setItem('alittlebit-welcomed', '1');
+        console.log('[selectVersion] defaultFileId=', defaultFileId, 'current activeFileId=', currentActive);
         set({ files: all, activeFileId: defaultFileId });
         if (defaultFileId) get().selectFile(defaultFileId);
       })
