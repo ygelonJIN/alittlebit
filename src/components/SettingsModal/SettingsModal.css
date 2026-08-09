@@ -117,6 +117,7 @@
   border-left-color: var(--accent-solid);
 }
 .settings-seg.active {
+  background: var(--accent-soft);
   color: var(--accent-solid);
   border-left-color: var(--accent-solid);
 }

@@ -159,8 +159,8 @@ const SYSTEM_PROMPT = [
   '一、工作目标',
   '==================================================',
   '你的最终目标是把一个模糊项目想法，持续收敛为一条完整的软件工程文档链，并支持版本化管理。',
-  'A 类核心产出文档包括：PRD / Features / Rules / RFC / Implementation / Code Review / Testing Strategy / Change Management',
-  'B 类治理产出文档包括：version_summary.md / question_log.md / confirmation_log.md / change_log.md / lock_summary.md / 差异文件 / 主入口索引',
+  'A 类核心产出文档包括：PRD / Rules / Features / Updates',
+  'B 类治理产出文档包括：question_log.md / confirmation_log.md / change_log.md',
   '你必须让 A 类文档和 B 类文档形成闭环。',
   '',
   '==================================================',
@@ -172,8 +172,8 @@ const SYSTEM_PROMPT = [
   '==================================================',
   '三、文档链顺序',
   '==================================================',
-  '必须按以下顺序推进：PRD → Features → Rules → RFC → Implementation → Code Review → Testing Strategy → Change Management',
-  '版本治理文档应同步生成或更新：version_summary / question_log / confirmation_log / change_log / lock_summary / 差异文件 / 主入口索引',
+  '必须按以下顺序推进：PRD → Rules → Features（多个） → Change Management',
+  '版本治理文档应同步生成或更新：question_log / confirmation_log / change_log',
   '你不得跳过前置文档直接生成后置文档。',
   '',
   '==================================================',
@@ -181,14 +181,14 @@ const SYSTEM_PROMPT = [
   '==================================================',
   '你必须看当前文档快照的实际内容来决定追问，不按固定模板机械追问。',
   '内容为空 + 没有 N/A 标注的章节 → 追问。已填内容、已有 N/A 标注的章节 → 跳过。不确定是否需要 → 追问用户确认。',
-  'PRD 阶段优先补：背景、目标、范围、用户、场景、功能、非功能、成功指标',
-  'Features 阶段优先补：功能编号、分类、优先级、验收标准、依赖、边界',
+  'PRD 阶段优先补：项目背景、竞品分析、参考项目、核心场景',
+  'Features 阶段优先补：功能概述、技术设计、实施步骤',
   'Rules 阶段优先补：技术栈、命名、目录、状态管理、API、测试、安全',
-  'RFC 阶段优先补：方案、依赖、文件变更、接口、状态、错误处理、测试策略',
-  'Implementation 阶段优先补：文件变更、实施顺序、风险、回滚',
-  'Review 阶段优先补：问题、风险、规则偏差、验收对照',
-  'Testing 阶段优先补：测试范围、重点场景、异常场景、回归项',
-  'Change Management 阶段优先补：变更内容、影响、决策、同步项',
+  '',
+  '',
+  '',
+  '',
+  'Updates 阶段优先补：变更内容、影响分析、同步更新项',
   '每轮提问数量由运行时指令指定，严格遵守。',
   '',
   '==================================================',
@@ -207,8 +207,8 @@ const SYSTEM_PROMPT = [
   '==================================================',
   '八、A 类文档必备要求',
   '==================================================',
-  '所有 A 类文档都必须至少具备：文档标题 / 文档编号 / 版本号 / 状态 / 创建时间 / 来源 / 关联上游文档 / 负责人 / 验收标准 / 版本治理衔接',
-  'A 类文档末尾必须增加"版本治理衔接"节：是否允许继续推进 / 是否有未确认项 / 是否有暂存项 / 是否已生成确认记录 / 是否已同步差异文件 / 是否已更新索引 / 是否已生成版本摘要 / 是否已进入锁定状态',
+  '所有 A 类文档都必须至少具备：文档标题',
+  '',
   '',
   '==================================================',
   '九、输出格式要求',
@@ -261,24 +261,24 @@ const SYSTEM_PROMPT = [
   '十一、语义路由规则（乱序输入，有序处理）',
   '==================================================',
   '用户可以乱序表达、天马行空。系统必须按语义分发，同一句话可命中多个文档。',
-  '总原则：当前激活文档优先 / 已锁定文档不直接改写 / 不确定内容先暂存 / 文档链按 PRD→Features→Rules→RFC→Implementation→Review→Testing→Change 顺序推进',
+  '总原则：当前激活文档优先 / 已锁定文档不直接改写 / 不确定内容先暂存 / 文档链按 PRD→Rules→Features→Updates 顺序推进',
   '',
   '## 语义路由表',
-  '- 项目背景、为什么做、痛点 → PRD + version_summary',
-  '- 目标、成功标准 → PRD + Features',
-  '- 目标用户、角色、画像 → PRD + Features',
+  '- 项目背景、为什么做、痛点 → PRD',
+  '- 目标 → PRD',
+  '- 核心场景 → PRD',
   '- 使用场景、用户旅程 → PRD + Features',
   '- 范围、本期做什么/不做什么 → PRD + RFC',
   '- 功能点、功能名、能力清单 → Features + PRD',
-  '- 功能优先级 Must/Should/Could → Features + RFC',
-  '- 功能验收标准 → Features + RFC',
+  '- 功能概述 → Features',
+  '- 技术设计 → Features',
   '- 功能依赖关系 → Features + RFC',
   '- 技术栈、版本选择 → Rules + RFC',
   '- 命名规范、目录结构、文件组织 → Rules + Implementation',
   '- 状态管理、数据流、组件边界 → Rules + RFC',
   '- API 规范、错误处理、重试、超时 → Rules + RFC',
   '- 安全要求、权限边界、API Key 处理 → Rules + PRD',
-  '- 性能、可访问性、响应式要求 → Rules + PRD',
+  '- 技术规范 → Rules',
   '- 不允许项、禁止项、约束规则 → Rules + SYSTEM_PROMPT',
   '- 具体实现方案、拆分步骤 → RFC + Implementation',
   '- 文件改动清单 → RFC + Implementation',
@@ -292,14 +292,14 @@ const SYSTEM_PROMPT = [
   '- 测试范围、测试类型、测试用例 → Testing Strategy + RFC',
   '- 异常场景、边界场景、回归范围 → Testing Strategy + RFC',
   '- 需求变更、新增/修改/删除 → Change Management + change_log',
-  '- 版本切换、派生新版本、锁定 → B 类治理 + latest_plan + version_summary',
+  '- 版本切换、派生新版本、锁定 → B 类治理',
   '- 问过什么、回答了什么 → question_log + confirmation_log',
-  '- 哪些内容已确认 → confirmation_log + version_summary',
-  '- 当前版本状态、是否能继续 → latest_plan + version_summary',
-  '- 差异、对比、变更摘要 → change_log/diff + version_summary',
-  '- 文件是否结束、是否锁定 → 灯状态 + latest_plan + version_summary',
+  '- 哪些内容已确认 → confirmation_log',
+  '- 当前版本状态、是否能继续 → latest_plan',
+  '- 差异、对比、变更摘要 → change_log',
+  '- 文件是否结束、是否锁定 → 灯状态',
   '',
-  '## 一句话多义时优先级：当前激活文档 > 当前阶段文档 > 上游文档 > Rules > 版本治理文档 > 暂存区',
+  '## 一句话多义时：当前激活文档 > 当前阶段文档 > 上游文档 > Rules',
   '',
   '==================================================',
   '十二、乱序输入处理流程',
@@ -315,7 +315,7 @@ const SYSTEM_PROMPT = [
   '==================================================',
   '以下情况必须暂存：归类不明确 / 依赖未满足 / 与当前阶段不一致 / 与锁定内容冲突 / 用户表达不足以定稿',
   '暂存内容不得直接定稿，只能在后续追问确认后写入。暂存项可跨文档存在但不重复定稿。',
-  '冲突优先级：已锁定内容 > 当前激活文档 > 当前阶段 > 上游文档 > 暂存候选项',
+  '冲突处理：已锁定内容 > 当前激活文档 > 当前阶段 > 上游文档',
   '若仍无法判断，先追问，不得猜测定稿。',
   '',
   '==================================================',
@@ -343,21 +343,46 @@ const SYSTEM_PROMPT = [
   '- lockCurrentDocument 使用时机：当文档所有阻塞缺口已填写完毕（无空章节、无待确认字段），或用户明确说"锁定"时，设为 true。否则保持 false。',
   '- 【合法 Section 白名单（枚举）】：',
   '- PRD 文档：',
-  '- 1. "1. 文档信息"',
-  '- 2. "2. 项目背景与问题定义"',
-  '- 3. "3. 竞品与市场分析"',
-  '- 4. "4. 目标"',
-  '- 5. "5. 核心场景"',
-  '- 6. "6. 技术架构与技术选型"',
-  '- 7. "7. 技术难点与解决方案"',
-  '- Features 文档：',
-  '- 8. "1. 文档信息"',
-  '- 9. "2. 系统模块划分"',
-  '- 10. "3. 核心功能清单"',
-  '- 11. "4. 依赖与执行流"',
-  '- 12. "5. 全局技术规则"',
+  '- 1. "1. 项目背景与问题定义"',
+  '- 2. "2. 竞品与市场分析"',
+  '- 3. "3. 参考项目"',
+  '- 4. "4. 核心场景"',
+  '- Rules 文档：',
+  '- 5. "1. 技术栈与版本"',
+  '- 6. "2. 技术架构与技术选型"',
+  '- 7. "3. 命名规范"',
+  '- 8. "4. 目录与文件组织"',
+  '- Feature 文件：',
+  '- 9. "1. 功能概述"',
+  '- 10. "2. 技术设计"',
+  '- 11. "3. 实施步骤"',
+  '-',
+
   '-',
   '- 【JSON 字段匹配示例】：',
+  '-',
+  '- 【Feature 文件创建规则】：',
+  '- 命名：feature-{功能名称}.md（如 feature-用户登录.md、feature-商品管理.md）',
+  '- 位置：versions/{versionId}/a/ 目录下',
+  '- 创建：通过 writeActions 的 targetFile 字段指定新文件名',
+  '- 拆分：每个功能一个文件，不合并多个功能到一个文件',
+  '-',
+  '- 【边界原则】：',
+  '- Feature 中的设计必须无条件服从 Rules 中的全局约束',
+  '- Rules 规定技术栈、命名、目录、API格式等全局规范',
+  '- Feature 规定具体功能的表结构、接口路径、状态管理等',
+  '- Feature 不得违反 Rules 的任何约束',
+  '-',
+  '- 【Feature 文件生命周期】：',
+  '- 锁定当前 Feature 后，自动创建新的 Feature 文件',
+  '- 所有功能都定义完后，进入 Change Management',
+  '- 判断标准：PRD 中的核心场景是否都已覆盖',
+  '- 用户明确说"所有功能都定义完了"时进入下一阶段',
+  '-',
+  '- 【上下文来源】：',
+  '- 默认勾选所有已创建的 Feature 文件',
+  '- AI 需要知道之前定义了什么功能，避免重复',
+
   '- CORRECT: { "targetSection": "6. 技术架构与技术选型", "content": "..." }',
   '- WRONG:   { "targetSection": "技术栈概要", "content": "..." }  <-- 严禁自创名称！',
   '- WRONG:   { "targetSection": "6.技术架构与选型", "content": "..." } <-- 严禁删减字词！',
@@ -375,11 +400,11 @@ const SYSTEM_PROMPT = [
 
 const STATIC_SYSTEM = SYSTEM_PROMPT;
 const B_TEMPLATE_FILES = new Set([
-  'version_summary.md',
+  'question_log.md',
   'change_log.md',
   'question_log.md',
   'confirmation_log.md',
-  'lock_summary.md',
+  'confirmation_log.md',
 ]);
 
 function buildFileTree(data: any[], prevFiles?: FileItem[]): FileItem[] {
@@ -537,12 +562,12 @@ const SECTION_ALIASES: Record<string, string> = {
   "竞争分析": "3. 竞品与市场分析",
   "竞品分析": "3. 竞品与市场分析",
   "市场分析": "3. 竞品与市场分析",
-  "MVP范围": "4. 目标",
+  "核心目标": "4. 目标",
   "技术栈": "6. 技术架构与技术选型",
   "技术栈概要": "6. 技术架构与技术选型",
   "技术选型": "6. 技术架构与技术选型",
   "困难分析": "7. 技术难点与解决方案",
-  "目标用户": "5. 核心场景",
+  "核心场景": "4. 核心场景",
   "典型使用场景": "5. 核心场景",
   "功能需求": "5. 核心场景",
   "背景与概述": "2. 项目背景与问题定义",
@@ -552,8 +577,8 @@ const SECTION_ALIASES: Record<string, string> = {
   "风险与应对": "7. 技术难点与解决方案",
   "非功能需求": "7. 技术难点与解决方案",
   "约束与依赖": "7. 技术难点与解决方案",
-  "成功指标": "4. 目标与项目范围",
-  "用户画像": "5. 核心场景与功能需求",
+  "核心目标": "4. 目标",
+  "核心场景": "4. 核心场景",
   "用户旅程": "5. 核心场景与功能需求",
   // Features aliases
   "功能分组": "2. 系统模块划分",
@@ -672,7 +697,7 @@ function buildRuntimeContext(questionCount: number, versions: any[], activeId: s
   }
 
   // Build document chain context
-  const docChain = ['PRD','Features','Rules','RFC','Implementation','Code Review','Testing Strategy','Change Management'];
+  const docChain = ['PRD','Rules','Features','Updates'];
   const aGroup = files.find(f => f.id === 'group:a');
   const aChildren = aGroup?.children ?? [];
   const activeFile = (() => {
@@ -736,9 +761,9 @@ function buildRuntimeContext(questionCount: number, versions: any[], activeId: s
   ctx += '【writeActions 规则】\n';
   ctx += '1. 用户确认的每条信息 → 写 writeActions。N/A 跳过意图 → 写 writeActions。writeActions 不得为空。\n';
   ctx += '2. 禁止包含模板占位符（如{项目名称}、{编号}等）。禁止包含其他 section 的 ## 标题。\n';
-  ctx += '3. 只写 targetSection 指定的那个段落的内容，不要越界写其他 section。\n';
+  ctx += '3. content 必须包含该 section 的完整内容（已确认+新确认），不是只写增量。参考快照中该 section 的已有内容，把之前确认的和本轮确认的都写进去。\n';
   ctx += '4. 用户选了选项A"30次用完锁定"，写成"猜错上限30次，用完永久锁定"，不是"用户选择了A"。\n';
-  ctx += '5. 禁止延迟写入、禁止跳过。';
+  ctx += '5. 禁止输出优先级（P0/P1/P2/Must/Should/Could/待确认等）。这是最终版文档，每条功能都是必须的。\n6. 禁止延迟写入、禁止跳过。';
   if (stage === 'collecting') ctx += '\n\n当前阶段: 收集中。请围绕缺口继续追问。';
   if (stage === 'refining') ctx += '\n\n当前阶段: 精进中。方向已明确。';
   if (stage === 'confirmed') ctx += '\n\n当前阶段: 已确认。可要求 locklock 锁定。';
@@ -751,60 +776,99 @@ function parseStage(reply: string): VersionStage | null {
   return m ? (m[1].toLowerCase() as VersionStage) : null;
 }
 
+function repairJSON(jsonStr: string): string {
+  // Remove comments
+  let repaired = jsonStr.replace(/\/\/.*$/gm, "");
+  // Remove trailing commas
+  repaired = repaired.replace(/,\s*([}\]])/g, "$1");
+  // Fix missing closing brackets
+  let openBraces = 0;
+  let openBrackets = 0;
+  for (const char of repaired) {
+    if (char === "{") openBraces++;
+    else if (char === "}") openBraces--;
+    else if (char === "[") openBrackets++;
+    else if (char === "]") openBrackets--;
+  }
+  while (openBraces > 0) { repaired += "}"; openBraces--; }
+  while (openBrackets > 0) { repaired += "]"; openBrackets--; }
+  return repaired;
+}
+
 function extractProtocol(aiResponse: string): any | null {
   if (!aiResponse) return null;
 
-  // Core fix: use bracket stack depth to extract first complete {} block
-  const extractFirstValidJsonBlock = (text: string) => {
-    const startIndex = text.indexOf('{');
-    if (startIndex === -1) return null;
+  // Core fix: use bracket stack depth to extract JSON blocks, find the one with protocol fields
+  const extractNextJsonBlock = (text: string, startPos: number): { json: string | null, nextPos: number } => {
+    const startIndex = text.indexOf("{", startPos);
+    if (startIndex === -1) return { json: null, nextPos: -1 };
     
     let depth = 0;
     for (let i = startIndex; i < text.length; i++) {
-      if (text[i] === '{') depth++;
-      else if (text[i] === '}') depth--;
+      if (text[i] === "{") depth++;
+      else if (text[i] === "}") depth--;
       
       if (depth === 0) {
-        return text.substring(startIndex, i + 1);
+        return { json: text.substring(startIndex, i + 1), nextPos: i + 1 };
       }
     }
     
-    const endIndex = text.lastIndexOf('}');
-    return endIndex > startIndex ? text.substring(startIndex, endIndex + 1) : null;
+    const endIndex = text.lastIndexOf("}");
+    return endIndex > startIndex ? { json: text.substring(startIndex, endIndex + 1), nextPos: endIndex + 1 } : { json: null, nextPos: -1 };
   };
 
-  const rawJsonString = extractFirstValidJsonBlock(aiResponse);
-
-  if (rawJsonString) {
+  // Find all JSON blocks, prefer the one with protocol fields
+  let searchPos = 0;
+  let fallbackResult: any = null;
+  while (searchPos < aiResponse.length) {
+    const { json: rawJsonString, nextPos } = extractNextJsonBlock(aiResponse, searchPos);
+    if (!rawJsonString || nextPos === -1) break;
+    
     try {
-      return JSON.parse(rawJsonString);
+      const parsed = JSON.parse(rawJsonString);
+      // Check if this block has protocol fields (writeActions/uiActions/currentDocument)
+      if (parsed && (parsed.writeActions || parsed.uiActions || parsed.currentDocument || parsed.documentChain)) {
+        return parsed; // Found protocol block
+      }
+      // Save first valid JSON as fallback (in case no protocol block found)
+      if (!fallbackResult) fallbackResult = parsed;
     } catch (e) {
       try {
         const repairedString = repairJSON(rawJsonString);
-        return JSON.parse(repairedString); 
+        const parsed = JSON.parse(repairedString);
+        if (parsed && (parsed.writeActions || parsed.uiActions || parsed.currentDocument || parsed.documentChain)) {
+          return parsed; // Found protocol block after repair
+        }
+        if (!fallbackResult) fallbackResult = parsed;
       } catch (repairError) {
         console.warn("[extractProtocol] JSON repair failed", repairError);
       }
     }
+    
+    searchPos = nextPos;
   }
-
-  // Fallback: regex extract key fields
-  const lockMatch = aiResponse.match(/"lockCurrentDocument"\s*:\s*(true|false)/);
-  const selectFileMatch = aiResponse.match(/"selectFile"\s*:\s*"([^"]+)"/);
   
-  if (lockMatch || selectFileMatch) {
-    return {
-      uiActions: {
-        lockCurrentDocument: lockMatch ? lockMatch[1] === 'true' : false,
-        selectFile: selectFileMatch ? selectFileMatch[1] : null
-      },
-      writeActions: [],
-      confirmations: [],
-    };
+  // If we found a valid JSON but no protocol block, return it for fallback regex
+  if (fallbackResult) {
+    // Check fallback regex for key fields
+    const lockMatch = aiResponse.match(/"lockCurrentDocument"\s*:\s*(true|false)/);
+    const selectFileMatch = aiResponse.match(/"selectFile"\s*:\s*"([^"]+)"/);
+    
+    if (lockMatch || selectFileMatch) {
+      return {
+        uiActions: {
+          lockCurrentDocument: lockMatch ? lockMatch[1] === "true" : false,
+          selectFile: selectFileMatch ? selectFileMatch[1] : null
+        },
+        writeActions: [],
+        confirmations: [],
+      };
+    }
   }
-
+  
   return null;
 }
+
 
 async function executeProtocol(store: any, protocol: any) {
   console.log('[autoWrite] executeProtocol: 开始, protocol keys=', Object.keys(protocol || {}));
@@ -881,7 +945,7 @@ async function executeProtocol(store: any, protocol: any) {
     store.setLockAdvance({ fileId: store.activeFileId, nextFileId: nextChild?.id || '' });
     return;
   }
-  if (protocol.shouldAdvance && protocol.suggestedNextDocument) {
+  if (protocol.shouldAdvance && protocol.suggestedNextDocument && !store.lockAdvance) {
     const nextFileId = findFileId(store.files, protocol.suggestedNextDocument);
     if (nextFileId) store.selectFile(nextFileId);
   }
@@ -1033,27 +1097,13 @@ function cleanText(text: string): string {
     .replace(/\s+/g, ' ')
     .trim();
 }
-
-function repairJSON(jsonStr: string): string {
-  let s = jsonStr.trim();
-  s = s.replace(/\/\/.*$/gm, '');
-  s = s.replace(/\/\*[\s\S]*?\*\//g, '');
-  s = s.replace(/,\s*([}\]])/g, '$1');
-  const openBraces = (s.match(/{/g) || []).length;
-  const closeBraces = (s.match(/}/g) || []).length;
-  const openBrackets = (s.match(/\[/g) || []).length;
-  const closeBrackets = (s.match(/]/g) || []).length;
-  for (let i = 0; i < openBrackets - closeBrackets; i++) s += '\n]';
-  for (let i = 0; i < openBraces - closeBraces; i++) s += '\n}';
-  return s;
-}
-
 function parseQuestionsBlock(reply: string): ParsedQuestionBlock {
-  // Extract ### 本轮问题 section
-  const match = reply.match(/(?:##|###)\s*本轮问题[：:]?\s*\n([\s\S]*?)(?=\n(?:##|###)\s|\n```json\b|$)/);
-  if (!match) return { sectionText: '', prefix: reply, suffix: '', questions: [] };
+  const match = reply.match(/###\s*本轮问题[\s\S]*?(?=\n###|\n```|$)/);
+  if (!match) return { sectionText: ', prefix: reply, suffix: ', questions: [] };
 
   const sectionText = match[0];
+
+
   const prefix = reply.slice(0, match.index!);
   const suffix = reply.slice(match.index! + sectionText.length);
   const body = match[1];
@@ -1480,7 +1530,7 @@ export const useStore = create<AppState>()(
   temporaryActions: [],
   apiKey: '',
   model: 'mimo-v2.5-pro',
-  apiEndpoint: 'https://api.xiaomimimo.com/v1/chat/completions',
+  apiEndpoint: 'https://token-plan-cn.xiaomimimo.com/v1/chat/completions',
   isLoading: false,
   fileLoading: {},
   questionCount: 3,
@@ -1794,7 +1844,7 @@ export const useStore = create<AppState>()(
     if (!v) return;
     // Toggle unlock
     if (v.locked) {
-      // Unlock: append record to lock_summary via API
+
       try {
         await fetch('/api/files/locklock', {
           method: 'POST',
@@ -1843,17 +1893,6 @@ export const useStore = create<AppState>()(
     // Update B file references
     try {
       const verId = get().activeVersionId;
-      for (const file of ['version_summary.md', 'lock_summary.md']) {
-        const bPath = 'letsgo/versions/' + verId + '/b/' + file;
-        const r = await fetch('/api/files?path=' + encodeURIComponent(bPath));
-        const data = await r.json();
-        if (!data.lines) continue;
-        const content = data.lines.map((l: any) => l.text).join(String.fromCharCode(10));
-        const updated = content.split(oldTitle).join(name);
-        if (updated !== content) {
-          await fetch('/api/files/write', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filePath: bPath, content: updated }) });
-        }
-      }
     } catch (e) { /* non-critical */ }
   },
 
@@ -2072,15 +2111,18 @@ export const useStore = create<AppState>()(
 
   clearRetryPrompt: () => set({ retryPrompt: null }),
 
+
   retrySend: () => {
     const { retryPrompt, messages } = get();
     if (!retryPrompt) return;
     // Remove last user message (the failed one)
     const msgs = [...messages];
+    let lastAttachments: Array<{ name: string; size: number }> | undefined;
     if (msgs.length > 0 && msgs[msgs.length - 1].role === 'user') {
+      lastAttachments = msgs[msgs.length - 1].attachments;
       msgs.pop();
     }
-    set({ messages: msgs, inputText: retryPrompt, retryPrompt: null });
+    set({ messages: msgs, inputText: retryPrompt, retryPrompt: null, pendingAttachments: lastAttachments });
     setTimeout(() => get().sendMessage(), 50);
   },
 
@@ -2111,20 +2153,11 @@ export const useStore = create<AppState>()(
 
     let content: string;
     if (cat === 'b') {
-      if (file.name === 'version_summary.md' || file.name === 'lock_summary.md') {
-        const tplPath = 'letsgo/templates/b/' + file.name;
-        try {
-          const r = await fetch('/api/files?path=' + encodeURIComponent(tplPath));
-          const data = await r.json();
-          if (!data.lines) { console.log('[resetFile] 模板不存在'); return; }
-          content = data.lines.map((l: any) => l.text).join(String.fromCharCode(10));
-        } catch (e) { console.log('[resetFile] 读取模板失败', e); showToast('重置失败', 'error'); return; }
-      } else {
-        const name = file.name.replace(/\.md$/, '');
-        const title = name.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
-        content = '# ' + title + String.fromCharCode(10, 10);
-      }
+      const name = file.name.replace(/\.md$/, ')')
+      const title = name.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+      content = '# ' + title + String.fromCharCode(10, 10);
     } else {
+
       const tplPath = 'letsgo/templates/' + fileId;
       try {
         const r = await fetch('/api/files?path=' + encodeURIComponent(tplPath));

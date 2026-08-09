@@ -108,30 +108,65 @@ function QuestionCard({ questions, onSelectionChange, answersRef, customRef, bat
   batchId?: string;
 }) {
   if (questions.length === 0 || !batchId) return null;
-  const [selected, setSelected] = useState<Record<number, number>>({});
+  
+  // Initialize selected from answersRef if available
+  const initialSelected: Record<number, number[]> = {};
+  if (answersRef?.current[batchId]) {
+    const batch = answersRef.current[batchId];
+    for (const [idx, ans] of Object.entries(batch)) {
+      const qIdx = Number(idx);
+      // Restore selected indices from labels
+      if (ans.label) {
+        const labels = ans.label.split(', ');
+        const indices: number[] = [];
+        for (const label of labels) {
+          const optIdx = questions[qIdx]?.options.findIndex(o => o.label === label);
+          if (optIdx >= 0) indices.push(optIdx);
+        }
+        if (indices.length > 0) initialSelected[qIdx] = indices;
+      }
+    }
+  }
+  
+  const [selected, setSelected] = useState<Record<number, number[]>>(initialSelected);
   const [customAnswers, setCustomAnswers] = useState<Record<number, string>>({});
 
   const updateSelection = (qIdx: number, optIdx: number, optLabel: string, isCustom: boolean) => {
-    if (selected[qIdx] === optIdx) {
-      // Deselect
-      const next = { ...selected };
-      delete next[qIdx];
-      setSelected(next);
-      const newCount = Object.keys(next).length;
-      onSelectionChange?.(newCount);
-      if (answersRef) {
-        const batch = { ...(answersRef.current[batchId] || {}) };
-        delete batch[qIdx];
-        answersRef.current = { ...answersRef.current, [batchId]: batch };
-      }
+    const current = selected[qIdx] || [];
+    const isSelected = current.includes(optIdx);
+    let nextSelection: number[];
+    
+    if (isSelected) {
+      // Deselect this option
+      nextSelection = current.filter(i => i !== optIdx);
     } else {
-      const newCount = Object.keys({ ...selected, [qIdx]: optIdx }).length;
-      setSelected(prev => ({ ...prev, [qIdx]: optIdx }));
-      onSelectionChange?.(newCount);
-      if (answersRef) {
-        const batch = { ...(answersRef.current[batchId] || {}), [qIdx]: { label: optLabel, custom: customAnswers[qIdx] || '' } };
-        answersRef.current = { ...answersRef.current, [batchId]: batch };
+      // Select this option (add to array)
+      nextSelection = [...current, optIdx];
+    }
+    
+    const next = { ...selected };
+    if (nextSelection.length === 0) {
+      delete next[qIdx];
+    } else {
+      next[qIdx] = nextSelection;
+    }
+    setSelected(next);
+    
+    // Count questions with at least one selection
+    const newCount = Object.keys(next).length;
+    onSelectionChange?.(newCount);
+    
+    if (answersRef) {
+      const batch = { ...(answersRef.current[batchId] || {}) };
+      if (nextSelection.length === 0) {
+        delete batch[qIdx];
+      } else {
+        // Collect all selected labels
+        const labels = nextSelection.map(idx => questions[qIdx].options[idx]?.label || '');
+        console.log('[MultiSelect] qIdx:', qIdx, 'nextSelection:', nextSelection, 'labels:', labels, 'questions.options:', questions[qIdx]?.options);
+        batch[qIdx] = { label: labels.join(', '), custom: customAnswers[qIdx] || '' };
       }
+      answersRef.current = { ...answersRef.current, [batchId]: batch };
     }
   };
 
@@ -149,7 +184,7 @@ function QuestionCard({ questions, onSelectionChange, answersRef, customRef, bat
                   return (
                     <div
                       key={j}
-                      className={`q-option${selected[i] === j ? ' q-selected' : ''}${isSelfFill ? ' q-self-fill' : ''}`}
+                      className={`q-option${selected[i]?.includes(j) ? ' q-selected' : ''}${isSelfFill ? ' q-self-fill' : ''}`}
                       onClick={() => {
                         updateSelection(i, j, o.label, isSelfFill);
                         if (!isSelfFill) {
@@ -157,10 +192,10 @@ function QuestionCard({ questions, onSelectionChange, answersRef, customRef, bat
                         }
                       }}
                     >
-                      <span className={`q-radio${selected[i] === j ? ' q-checked' : ''}`} />
+                      <span className={`q-radio${selected[i]?.includes(j) ? ' q-checked' : ''}`} />
                       <div className="q-opt-body">
                         <span className="q-opt-label">{o.label}</span>
-                        {isSelfFill && selected[i] === j && (
+                        {isSelfFill && selected[i]?.includes(j) && (
                           <input
                             className="q-self-input"
                             placeholder="请输入"
@@ -217,6 +252,11 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const selectedAnswers = useRef<Record<string, Record<number, { label: string; custom: string }>>>({});
   const customRef = useRef<Record<string, Record<number, string>>>({});
   const [inputExpanded, setInputExpanded] = useState(false);
+
+  const [thinkingTime, setThinkingTime] = useState(0);
+  const thinkingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const thinkingStartRef = useRef<number>(0);
+
   const [activeMode, setActiveMode] = useState<'submit' | 'reply' | 'change' | null>(null);
   const [changeMode, setChangeMode] = useState(false);
   const composerRef = useRef<HTMLDivElement>(null);
@@ -250,9 +290,45 @@ export default function ChatPanel({ isReadOnly }: Props) {
     }
   }, [messages.length, isLoading]);
 
+  // Thinking timer - use Date for accurate time
+  useEffect(() => {
+    if (isLoading && !thinkingTimerRef.current) {
+      thinkingStartRef.current = Date.now();
+      thinkingTimerRef.current = setInterval(() => {
+        setThinkingTime(Math.floor((Date.now() - thinkingStartRef.current) / 1000));
+      }, 1000);
+    } else if (!isLoading && thinkingTimerRef.current) {
+      clearInterval(thinkingTimerRef.current);
+      thinkingTimerRef.current = null;
+      const finalTime = Math.floor((Date.now() - thinkingStartRef.current) / 1000);
+      if (finalTime > 0) {
+        const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant');
+        if (lastAssistantMsg && !lastAssistantMsg.thinkingTime) {
+          useStore.setState((s) => ({
+            messages: s.messages.map(m =>
+              m.id === lastAssistantMsg.id ? { ...m, thinkingTime: finalTime } : m
+            )
+          }));
+        }
+      }
+    }
+    return () => {
+      if (thinkingTimerRef.current) {
+        clearInterval(thinkingTimerRef.current);
+      }
+    };
+  }, [isLoading]);
+
+
+
   // Compute all A docs except current, split by position
   const aGroup = files.find(f => f.id === 'group:a');
   const aChildren = aGroup?.children ?? [];
+  // Group feature files into a single "Features" entry
+  const featureFiles = aChildren.filter(f => f.name.startsWith('feature-'));
+  const nonFeatureFiles = aChildren.filter(f => !f.name.startsWith('feature-'));
+  const hasMultipleFeatures = featureFiles.length > 1;
+
   const currentIdx = aChildren.findIndex(f => f.id === activeFileId);
   const allOtherAFiles = aChildren.filter(f => f.id !== activeFileId);
   const beforeFiles = currentIdx > 0 ? aChildren.slice(0, currentIdx) : [];
@@ -314,6 +390,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
   };
 
   const doSend = () => {
+    setThinkingTime(0);
     if (isLoading || isReadOnly) return;
     const text = inputText.trim();
     if (!text && uploadedFiles.length === 0) return;
@@ -438,11 +515,17 @@ export default function ChatPanel({ isReadOnly }: Props) {
                     提示词 {m.usage.prompt.toLocaleString()} + 补全 {m.usage.completion.toLocaleString()} = {m.usage.total.toLocaleString()} token
                   </div>
                 )}
+                {m.thinkingTime && (
+                  <div className="thinking-time">
+                    思考时间 {m.thinkingTime}s
+                  </div>
+                )}
+
               </div>
             );
           })}
         {isLoading && (
-          <div className="loading-msg"><em>AI 思考中...</em></div>
+          <div className="loading-msg"><em>AI 思考中... {thinkingTime}s</em></div>
         )}
         <div className="new-session-bar">
           <button className="btn new-session-btn" onClick={() => { useStore.getState().clearMessages(); }}>新开 Session</button>
@@ -477,8 +560,8 @@ export default function ChatPanel({ isReadOnly }: Props) {
                   return (
                     <button
                       key={f.id}
-                      className={`upstream-chip${isSelected ? ' active' : ''}`}
-                      onClick={() => toggleUpstream(f.id)}
+                      className={`upstream-chip${isSelected ? ' active' : ''}${isLoading ? ' disabled' : ''}`}
+                      onClick={() => !isLoading && toggleUpstream(f.id)}
                     >
                       {f.name.replace('.md', '')}
                     </button>
@@ -497,7 +580,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
               <div className={`mode-panel mode-panel-compose${inputExpanded ? ' expanded' : ''}`}>
                 <div className="textarea-wrap">
                   <textarea
-                    className="input-textarea"
+                    className="input-textarea" disabled={isReadOnly || isLoading}
                     style={{ minHeight: inputExpanded ? 280 : 0 }}
                     value={isReadOnly ? '' : inputText}
                     onChange={(e) => setInputText(e.target.value)}
@@ -508,7 +591,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
                     disabled={isReadOnly || isLoading}
                   />
                   <button className="expand-btn" onClick={() => setInputExpanded(!inputExpanded)} title={inputExpanded ? '收起' : '放大'}>
-                    <svg width="12" height="12" viewBox="0 0 12 12"><path d="M2 8 Q6 4 10 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M2 4.5 Q6 0.5 10 4.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                    <svg width="12" height="12" viewBox="0 0 12 12"><path d="M1 11 L1 1 L11 1" fill="none" stroke="var(--accent-solid)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M4 8 L4 4 L8 4" fill="none" stroke="var(--accent-solid)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                   </button>
                 </div>
                 {uploadedFiles.length > 0 && (
@@ -533,12 +616,12 @@ export default function ChatPanel({ isReadOnly }: Props) {
                   />
                   <button className="btn" onClick={() => fileInputRef.current?.click()}>添加文件</button>
                   <button
-                    className={`btn-correction${changeMode ? ' active' : ''}`}
-                    onClick={() => setChangeMode(!changeMode)}
+                    className={`btn-correction${changeMode ? ' active' : ''}${isLoading ? ' disabled' : ''}`}
+                    onClick={() => !isLoading && setChangeMode(!changeMode)}
                   >
                     跨文档纠偏
                   </button>
-                  <button className="btn" onClick={doSend} disabled={isReadOnly || isLoading}>发送</button>
+                  <button className="btn" onClick={doSend} disabled={isReadOnly || isLoading}>→</button>
                 </div>
               </div>
             )}

@@ -71,8 +71,41 @@ export default function MarkdownEditor({ isReadOnly, onCursorMove }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  // History for undo/redo
+  const historyRef = useRef<string[]>([]);
+  const historyIndexRef = useRef<number>(-1);
+  const isUndoRedoRef = useRef(false);
 
   const text = lines.map((l) => l.text).join('\n');
+  
+  // Initialize history when file changes
+  useEffect(() => {
+    historyRef.current = [text];
+    historyIndexRef.current = 0;
+  }, [activeFileId]);
+
+  // Save to history when text changes (from AI or external)
+  useEffect(() => {
+    if (historyRef.current.length === 0) {
+      historyRef.current = [text];
+      historyIndexRef.current = 0;
+    } else {
+      const lastText = historyRef.current[historyIndexRef.current];
+      if (text !== lastText && !isUndoRedoRef.current) {
+        // Remove any redo history
+        historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1);
+        historyRef.current.push(text);
+        historyIndexRef.current = historyRef.current.length - 1;
+        // Limit history size
+        if (historyRef.current.length > 100) {
+          historyRef.current.shift();
+          historyIndexRef.current--;
+        }
+      }
+    }
+  }, [text]);
+
 
   const syncScroll = useCallback(() => {
     if (textareaRef.current && gutterRef.current) {
@@ -104,6 +137,22 @@ export default function MarkdownEditor({ isReadOnly, onCursorMove }: Props) {
       active: lines[i]?.active ?? false,
     }));
     setEditorLines(updatedLines);
+    
+    // Save to history (only if not undo/redo)
+    if (!isUndoRedoRef.current) {
+      const history = historyRef.current;
+      const idx = historyIndexRef.current;
+      // Remove any redo history
+      historyRef.current = history.slice(0, idx + 1);
+      historyRef.current.push(newText);
+      historyIndexRef.current = historyRef.current.length - 1;
+      // Limit history size
+      if (historyRef.current.length > 100) {
+        historyRef.current.shift();
+        historyIndexRef.current--;
+      }
+    }
+    isUndoRedoRef.current = false;
 
     // Debounce auto-save (500ms after last keystroke)
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -121,6 +170,42 @@ export default function MarkdownEditor({ isReadOnly, onCursorMove }: Props) {
     const lastNewline = textBefore.lastIndexOf('\n');
     const col = pos - lastNewline;
     onCursorMove?.(lineIdx + 1, col);
+  };
+  
+  const undo = () => {
+    const idx = historyIndexRef.current;
+    if (idx <= 0) return;
+    historyIndexRef.current = idx - 1;
+    const prevText = historyRef.current[idx - 1];
+    isUndoRedoRef.current = true;
+    const newLines = prevText.split('\n');
+    const updatedLines = newLines.map((text, i) => ({
+      id: `L${i + 1}`,
+      lineNumber: i + 1,
+      text,
+      type: 'paragraph' as any,
+      active: false,
+    }));
+    setEditorLines(updatedLines);
+    saveToDisk(updatedLines);
+  };
+  
+  const redo = () => {
+    const idx = historyIndexRef.current;
+    if (idx >= historyRef.current.length - 1) return;
+    historyIndexRef.current = idx + 1;
+    const nextText = historyRef.current[idx + 1];
+    isUndoRedoRef.current = true;
+    const newLines = nextText.split('\n');
+    const updatedLines = newLines.map((text, i) => ({
+      id: `L${i + 1}`,
+      lineNumber: i + 1,
+      text,
+      type: 'paragraph' as any,
+      active: false,
+    }));
+    setEditorLines(updatedLines);
+    saveToDisk(updatedLines);
   };
 
   useEffect(() => {
@@ -145,6 +230,8 @@ export default function MarkdownEditor({ isReadOnly, onCursorMove }: Props) {
         <div className="editor-mode-bar">
           <button className={`editor-mode-btn${mode === 'edit' ? ' active' : ''}`} onClick={() => setMode('edit')}>Edit</button>
           <button className={`editor-mode-btn${mode === 'preview' ? ' active' : ''}`} onClick={() => setMode('preview')}>Preview</button>
+          <button className="editor-mode-btn editor-undo-btn" onClick={undo} title="撤销">←</button>
+          <button className="editor-mode-btn editor-redo-btn" onClick={redo} title="重做">→</button>
         </div>
         {mode === 'edit' ? (
           <div className="editor-view">
