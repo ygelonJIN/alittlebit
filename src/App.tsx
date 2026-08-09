@@ -12,7 +12,7 @@ export default function App() {
   const versions = useStore((s) => s.versions);
   const files = useStore((s) => s.files);
   const activeFileId = useStore((s) => s.activeFileId);
-  const isGuideView = activeFileId.startsWith('c/');
+  const isGuideView = activeFileId.startsWith('c/') || activeFileId.startsWith('b/');
   const isReadOnly = useStore((s) => s.isReadOnly);
   const activeVersionId = useStore((s) => s.activeVersionId);
   const questionCount = useStore((s) => s.questionCount);
