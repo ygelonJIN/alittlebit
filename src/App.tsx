@@ -12,6 +12,7 @@ export default function App() {
   const versions = useStore((s) => s.versions);
   const files = useStore((s) => s.files);
   const activeFileId = useStore((s) => s.activeFileId);
+  const isGuideView = activeFileId.startsWith('c/');
   const isReadOnly = useStore((s) => s.isReadOnly);
   const activeVersionId = useStore((s) => s.activeVersionId);
   const questionCount = useStore((s) => s.questionCount);
@@ -66,10 +67,10 @@ export default function App() {
     const onMove = (e: PointerEvent) => {
       if (!dragging || !layoutRef.current) return;
       const rect = layoutRef.current.getBoundingClientRect();
-      const total = rect.width - SPLITTER_W * 2;
+      const total = rect.width - (isGuideView ? SPLITTER_W : SPLITTER_W * 2);
       const x = e.clientX - rect.left;
-      if (dragging === 'l') setLeftW(Math.max(220, Math.min(x, total - rightW - 420)));
-      else setRightW(Math.max(360, total - Math.max(leftW + SPLITTER_W + 420, x)));
+      if (dragging === 'l') setLeftW(Math.max(220, Math.min(x, total - (isGuideView ? 0 : rightW) - 420)));
+      else if (!isGuideView) setRightW(Math.max(360, total - Math.max(leftW + SPLITTER_W + 420, x)));
     };
     const onUp = () => { setDragging(null); document.body.style.cursor = ''; document.body.style.userSelect = ''; };
     if (dragging) {
@@ -79,7 +80,7 @@ export default function App() {
       document.body.style.userSelect = 'none';
       return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
     }
-  }, [dragging, leftW, rightW]);
+  }, [dragging, leftW, rightW, isGuideView]);
 
   const handleVerRename = (id: string) => {
     const name = editVerName.trim();
@@ -90,7 +91,9 @@ export default function App() {
   const visibleVersions = versions.slice(verStart, verStart + verCount);
   const showArrows = versions.length > verCount;
   const maxVerStart = Math.max(0, versions.length - verCount);
-  const middleW = Math.max(420, (layoutRef.current?.getBoundingClientRect().width ?? 1448) - SPLITTER_W * 2 - leftW - rightW);
+  const middleW = isGuideView
+    ? Math.max(420, (layoutRef.current?.getBoundingClientRect().width ?? 1448) - SPLITTER_W - leftW)
+    : Math.max(420, (layoutRef.current?.getBoundingClientRect().width ?? 1448) - SPLITTER_W * 2 - leftW - rightW);
 
   return (
     <div className="app">
@@ -161,8 +164,8 @@ export default function App() {
             <div className="pane" style={{ width: leftW, flexShrink: 0 }}><FileExplorer files={files} /></div>
             <div className="splitter" onPointerDown={() => setDragging('l')} />
             <div className="pane" style={{ width: middleW, flexShrink: 0 }}><MarkdownEditor isReadOnly={isReadOnly} onCursorMove={(_, col) => setCursorCol(col)} /></div>
-            <div className="splitter" onPointerDown={() => setDragging('r')} />
-            <div className="pane" style={{ width: rightW, flexShrink: 0 }}><ChatPanel isReadOnly={isReadOnly} /></div>
+            {!isGuideView && <div className="splitter" onPointerDown={() => setDragging('r')} />}
+            {!isGuideView && <div className="pane" style={{ width: rightW, flexShrink: 0 }}><ChatPanel isReadOnly={isReadOnly} /></div>}
           </div>
         </div>
         <StatusBar isReadOnly={isReadOnly} lineNumber={activeLine?.lineNumber} colNumber={cursorCol} totalLines={lines.length} />

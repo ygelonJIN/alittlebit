@@ -1597,9 +1597,14 @@ export const useStore = create<AppState>()(
         const cGroup = all.find((f) => f.id === 'group:c');
         const cReadme = cGroup?.children?.find((f) => f.name === 'README.md');
         const isFirstVisit = !localStorage.getItem('alittlebit-welcomed') && !_welcomedThisSession;
-        console.log('[selectVersion] isFirstVisit=', isFirstVisit, 'cReadme=', cReadme?.id, 'aFirst=', aGroup?.children?.[0]?.id);
+        console.log('[selectVersion] isFirstVisit=', isFirstVisit, 'cReadme=', cReadme?.id, 'aFirst=', aGroup?.children?.[0]?.id, '_welcomedThisSession=', _welcomedThisSession);
         const currentActive = get().activeFileId;
         if (isFirstVisit && cReadme) { _welcomedThisSession = true; localStorage.setItem('alittlebit-welcomed', '1'); }
+        // If already welcomed this session (HMR double-call), only update files, don't override activeFileId
+        if (_welcomedThisSession && !isFirstVisit) {
+          set({ files: all });
+          return;
+        }
         const defaultFileId = isFirstVisit && cReadme ? cReadme.id : (aGroup?.children?.[0]?.id ?? bGroup?.children?.[0]?.id ?? all.find((f) => !f.id.startsWith('group:'))?.id ?? '');
         console.log('[selectVersion] defaultFileId=', defaultFileId, 'current activeFileId=', currentActive);
         set({ files: all, activeFileId: defaultFileId });
