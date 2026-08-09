@@ -66,7 +66,7 @@ export default function MarkdownEditor({ isReadOnly, onCursorMove }: Props) {
   const activeVersionId = useStore((s) => s.activeVersionId);
   const selectLine = useStore((s) => s.selectLine);
   const setEditorLines = useStore((s) => s.setEditorLines);
-  const [mode, setMode] = useState<'edit' | 'preview'>('edit');
+  const [mode, setMode] = useState<'edit' | 'preview'>('preview');
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);

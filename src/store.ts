@@ -1594,12 +1594,16 @@ export const useStore = create<AppState>()(
         const all = buildFileTree(data, get().files);
         const aGroup = all.find((f) => f.id === 'group:a');
         const bGroup = all.find((f) => f.id === 'group:b');
-        const defaultFileId = aGroup?.children?.[0]?.id ?? bGroup?.children?.[0]?.id ?? all.find((f) => !f.id.startsWith('group:'))?.id ?? '';
+        const cGroup = all.find((f) => f.id === 'group:c');
+        const cReadme = cGroup?.children?.find((f) => f.name === 'README.md');
+        const isFirstVisit = !localStorage.getItem('alittlebit-storage');
+        const defaultFileId = isFirstVisit && cReadme ? cReadme.id : (aGroup?.children?.[0]?.id ?? bGroup?.children?.[0]?.id ?? all.find((f) => !f.id.startsWith('group:'))?.id ?? '');
         set({ files: all, activeFileId: defaultFileId });
         if (defaultFileId) get().selectFile(defaultFileId);
       })
       .catch(() => {});
     return; // selectVersion returns void initially, async work continues in background
+
   },
 
 
