@@ -79,6 +79,8 @@ export interface AppState {
   setUpstreamSelection: (ids: string[] | null) => void;
   questionGen: QuestionGenState | null;
   streamingMsgId: string | null;
+  thinkingPhases: Array<{ label: string; reasoning: string; thinkingTime?: number }>;
+  isThinkingComplete: boolean;
 }
 
 // ── Heading node (for document section matching) ──
@@ -630,6 +632,9 @@ function mergeAContent(currentContent: string, action: any): MergeResult {
   for (let i = 0; i < instLines.length; i++) {
     const m = instLines[i].match(/^(#{1,6})\s+/);
     if (m && m[1].length <= targetLevel && /^\d+\.\s/.test(instLines[i].replace(/^#+\s*/, ''))) {
+      // Skip if this IS the target section heading itself (first matching numbered header)
+      const lineText = instLines[i].replace(/^#+\s*/, '').trim();
+      if (i === 0 && section && lineText.includes(section.replace(/^\d+\.\s*/, ''))) continue;
       cutIdx = i;
       break;
     }
@@ -893,6 +898,11 @@ async function executeProtocol(store: any, protocol: any) {
     let workingContent = store.lines.map((l: any) => l.text).join('\n');
     let wroteAny = false;
     for (const action of normalizedActions) {
+      // Skip B类 files — they are auto-synced by syncBAfterWrite from protocol.questions/confirmations
+      if (action.targetFile?.startsWith('b/') || action.targetFile?.includes('/b/')) {
+        console.log('[autoWrite] executeProtocol: 跳过 B类文件', action.targetFile);
+        continue;
+      }
       console.log('[autoWrite] executeProtocol: 执行 action section=', action?.targetSection);
       const mergeResult = mergeAContent(workingContent, action);
       if (!mergeResult.ok) {
@@ -1396,6 +1406,7 @@ async function ensureQuestionCount(
   activeVersionId: string,
   files: FileItem[],
   activeFileId: string,
+  noRetry?: boolean,
 ): Promise<{ finalReply: string; genState: QuestionGenState; extraUsage: TokenUsage | null }> {
   let genState: QuestionGenState = {
     status: 'first', attempt: 0, targetCount: questionCount, actualCount: 0, fillCount: 0, warnings: [],
@@ -1462,6 +1473,7 @@ async function ensureQuestionCount(
   }
 
   // 重试: 结构性问题或补缺失败
+  if (!noRetry) {
   genState.status = 'retrying';
   genState.attempt = 2;
   genState.warnings.push((canFill ? '补缺失败' : '结构性/质量问题') + '，全量重试');
@@ -1482,6 +1494,7 @@ async function ensureQuestionCount(
     genState.warnings.push('重试后仍有问题: ' + retryValidation.reason);
   } catch (e) {
     genState.warnings.push('重试调用失败: ' + String(e));
+  }
   }
 
   // 最终失败 — use best available reply with trimmed questions
@@ -1578,6 +1591,8 @@ export const useStore = create<AppState>()(
   upstreamSelection: null,
   questionGen: null,
   streamingMsgId: null,
+  thinkingPhases: [],
+  isThinkingComplete: false,
 
   setTheme: (theme) => {
     applyThemeMode(theme);
@@ -1755,32 +1770,84 @@ export const useStore = create<AppState>()(
       // Create empty assistant message for streaming updates
       const streamMsgId = 'm' + (msgCounter++);
       const streamMsg: ChatMessage = { id: streamMsgId, role: 'assistant', content: '', timestamp: now(), reasoning: '' };
-      set({ messages: [...get().messages, streamMsg], streamingMsgId: streamMsgId });
+      const phaseStart = Date.now();
+      set({ messages: [...get().messages, streamMsg], streamingMsgId: streamMsgId, thinkingPhases: [{ label: 'AI 思考中', reasoning: '' }], isThinkingComplete: false });
       const { content: reply, usage: firstUsage, reasoning } = await callAI(apiKey, get().apiEndpoint, get().model, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot,
         undefined, (accReasoning, accContent) => {
-          // Strip JSON protocol block from streaming display (complete and incomplete)
           const visible = accContent.replace(/```json[\s\S]*?```/g, '').replace(/```json[\s\S]*$/g, '').trim();
           const msgs = get().messages.map(m => m.id === streamMsgId ? { ...m, reasoning: accReasoning, content: visible || accContent } : m);
-          set({ messages: msgs });
+          set({ messages: msgs, thinkingPhases: [{ label: 'AI 思考中', reasoning: accReasoning }] });
         }
       );
-      set({ streamingMsgId: null });
+      // Phase 1 done
+      set(prev => ({
+        messages: prev.messages.map(m => m.id === streamMsgId ? { ...m, reasoning } : m),
+        streamingMsgId: null,
+        thinkingPhases: [{ label: 'AI 思考', reasoning, thinkingTime: Math.floor((Date.now() - phaseStart) / 1000) }]
+      }));
       console.log('[autoWrite] callAI returned, reply length:', reply?.length, 'reasoning length:', reasoning?.length);
       const parsedStage = parseStage(reply);
+      let totalUsage: TokenUsage = firstUsage ?? { prompt: 0, completion: 0, total: 0 };
 
-      // ── 校验门禁 (questionCount > 1 时启用) ──
+      // ── 第一步：立刻提取 writeActions 并写文档 ──
+      let protocol = extractProtocol(reply);
+      console.log('[autoWrite] 第一步: protocol?', !!protocol, 'writeActions:', protocol?.writeActions?.length);
+
+      if (!protocol || !Array.isArray(protocol.writeActions) || protocol.writeActions.length === 0) {
+        // writeActions 为空 → Phase 2 补写入
+        console.log('[autoWrite] writeActions 为空, 触发补写入调用');
+        const phase2Start = Date.now();
+        set(prev => ({ thinkingPhases: [...prev.thinkingPhases, { label: '二次写入文档中', reasoning: '' }], fileLoading: { ...prev.fileLoading, [prev.activeFileId]: true } }));
+        const fillMsgId = 'm' + (msgCounter++);
+        const fillMsg: ChatMessage = { id: fillMsgId, role: 'assistant', content: '', timestamp: now(), reasoning: '' };
+        set(prev => ({ messages: [...prev.messages, fillMsg], streamingMsgId: fillMsgId }));
+        try {
+          const fillWA = "补写writeActions。只输出JSON协议块。";
+          const { content: fillReply, reasoning: fillReasoning } = await callAI(apiKey, get().apiEndpoint, get().model, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot, fillWA, (accR: string, accC: string) => {
+              const visible = accC.replace(/```json[\s\S]*?```/g, '').replace(/```json[\s\S]*$/g, '').trim();
+              const msgs = get().messages.map(m => m.id === fillMsgId ? { ...m, reasoning: accR, content: visible || accC } : m);
+              const phases = get().thinkingPhases.map((p, i) => i === get().thinkingPhases.length - 1 ? { ...p, reasoning: accR } : p);
+              set({ messages: msgs, thinkingPhases: phases });
+            }
+          );
+          // Phase 2 done
+          set(prev => ({
+            messages: prev.messages.map(m => m.id === fillMsgId ? { ...m, reasoning: fillReasoning || '', content: fillReply.replace(/```json[\s\S]*?```/g, '').trim() || fillReply } : m),
+            streamingMsgId: null,
+            thinkingPhases: prev.thinkingPhases.map((p, i) => i === prev.thinkingPhases.length - 1 ? { ...p, label: '二次写入文档', reasoning: fillReasoning || '', thinkingTime: Math.floor((Date.now() - phase2Start) / 1000) } : p)
+          }));
+          const fillProtocol = extractProtocol(fillReply);
+          if (fillProtocol?.writeActions?.length > 0) {
+            protocol = fillProtocol;
+            console.log('[autoWrite] 补写入成功, writeActions:', protocol.writeActions.length);
+          }
+        } catch (e: any) {
+          console.warn('[autoWrite] 补写入失败:', e?.message);
+          set(prev => ({ streamingMsgId: null }));
+        }
+      }
+
+      // 执行 writeActions 写文档
+      if (protocol?.writeActions?.length > 0) {
+        set(prev => ({ thinkingPhases: [...prev.thinkingPhases, { label: "写入文档中", reasoning: "" }] }));
+        await new Promise(r => setTimeout(r, 50));
+        await executeProtocol(get(), protocol);
+        console.log("[autoWrite] executeProtocol 完成");
+        set(prev => ({ thinkingPhases: prev.thinkingPhases.map((p, i) => i === prev.thinkingPhases.length - 1 ? { ...p, label: "写入文档", thinkingTime: 0 } : p) }));
+      }
+
+      // ── 第二步：处理问题数量（不阻塞写入） ──
       let finalReply = reply;
       let genState: QuestionGenState | null = null;
-      let totalUsage: TokenUsage = firstUsage ?? { prompt: 0, completion: 0, total: 0 };
-      console.log('[autoWrite] questionCount:', questionCount, 'firstUsage:', firstUsage);
       if (questionCount > 1) {
-        console.log('[autoWrite] 进入 ensureQuestionCount...');
+        console.log('[autoWrite] 第二步: ensureQuestionCount...');
+        const phase3Start = Date.now();
+        set(prev => ({ thinkingPhases: [...prev.thinkingPhases, { label: "二次提问中", reasoning: "" }] }));
         const result = await ensureQuestionCount(reply, questionCount, snapshot,
           apiKey, get().apiEndpoint, get().model, get().messages, get().versions, get().activeVersionId,
-          get().files, get().activeFileId);
+          get().files, get().activeFileId, protocol?.writeActions?.length > 0);
         finalReply = result.finalReply;
         genState = result.genState;
-        // accumulate fill/retry token usage
         if (result.extraUsage) {
           totalUsage = {
             prompt: totalUsage.prompt + result.extraUsage.prompt,
@@ -1788,23 +1855,19 @@ export const useStore = create<AppState>()(
             total: totalUsage.total + result.extraUsage.total,
           };
         }
-      }
+        // Phase 3 done
+        set(prev => ({ thinkingPhases: prev.thinkingPhases.map((p, i) => i === prev.thinkingPhases.length - 1 ? { ...p, label: "二次提问", thinkingTime: Math.floor((Date.now() - phase3Start) / 1000) } : p) }));
 
-      // Strip JSON protocol block from visible text
-      console.log('[autoWrite] finalReply 前200字:', finalReply.slice(0, 200));
-      const hasJsonBlock = finalReply.includes('```json');
-      console.log('[autoWrite] sendMessage: AI 回复长度=', finalReply.length, '包含```json?', hasJsonBlock);
-      if (!hasJsonBlock) {
-        console.log('[autoWrite] sendMessage: AI 回复末尾 300 字符:', finalReply.slice(-300));
       }
+      // Strip JSON and update message
       const visibleText = finalReply.replace(/```json[\s\S]*?```/g, '').trim() || finalReply;
-      // Update the existing streaming message with final content
       const newMsgs = get().messages.map(m => m.id === streamMsgId ? {
         ...m,
         content: visibleText,
-        raw: finalReply, protocol: extractProtocol(finalReply),
+        raw: finalReply, protocol,
         usage: totalUsage.total > 0 ? totalUsage : undefined,
         reasoning,
+        reasoningPhases: get().thinkingPhases,
         questionGenMeta: genState ? {
           attempted: genState.attempt > 0,
           attemptCount: genState.attempt,
@@ -1814,85 +1877,9 @@ export const useStore = create<AppState>()(
           warnings: genState.warnings.join('; '),
         } : undefined,
       } : m);
-      const updates: any = { messages: newMsgs, fileLoading: { ...get().fileLoading, [get().activeFileId]: false }, questionGen: genState };
-      if (parsedStage) {
-        updates.versions = get().versions.map((v) => {
-          if (v.id === get().activeVersionId) return { ...v, stage: parsedStage } as any;
-          return v;
-        });
-      }
-      set(updates);
-
-      // Execute protocol from parsed message
-      const protocol = newMsgs[newMsgs.length - 1].protocol;
-      console.log('[autoWrite] sendMessage: protocol 存在?', !!protocol, 'writeActions:', protocol?.writeActions?.length, 'keys:', protocol ? Object.keys(protocol) : 'null');
-      if (!protocol) {
-        // ── 协议缺失重试：请求 AI 补输出协议块 ──
-        console.log('[autoWrite] sendMessage: 协议缺失, 触发重试');
-        try {
-          const retryPrompt = '【紧急】你的上一轮回复缺少 ```json 协议块。请立即补充输出完整的协议块，格式如下：\n```json\n{\n  "writeActions": [{ "targetFile": "a/XX.md", "targetSection": "section名", "content": "写入内容" }],\n  "confirmations": ["确认项"],\n  "lockCurrentDocument": false\n}\n```\n只输出这个 JSON 块，不要输出其他文字。';
-          const { content: retryReply } = await callAI(apiKey, get().apiEndpoint, get().model, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot, retryPrompt);
-          const retryProtocol = extractProtocol(retryReply);
-          if (retryProtocol) {
-            console.log('[autoWrite] sendMessage: 协议重试成功');
-            newMsgs[newMsgs.length - 1].protocol = retryProtocol;
-          } else {
-            console.warn('[autoWrite] sendMessage: 协议重试失败, AI 仍未输出协议块');
-          }
-        } catch (e: any) {
-          console.warn('[autoWrite] sendMessage: 协议重试异常', e?.message || e);
-        }
-      }
-      const finalProtocol = newMsgs[newMsgs.length - 1].protocol;
-      if (finalProtocol) {
-        if (!protocolHasRequiredFields(finalProtocol)) {
-          console.log('[autoWrite] sendMessage: protocol 缺少必填字段, 显示提示');
-          set((s) => ({
-            messages: [...s.messages, { id: 'm' + (msgCounter++), role: 'assistant' as const, content: 'AI 回复缺少协议块，未执行自动回填。', timestamp: now() }],
-          }));
-        } else {
-          // ── 窄重试：confirmations 非空但 writeActions 为空 → 补写一次 ──
-          const writeActions = Array.isArray(finalProtocol.writeActions) ? finalProtocol.writeActions : [];
-          const confirmations = Array.isArray(finalProtocol.confirmations) ? finalProtocol.confirmations : [];
-          if (writeActions.length === 0 && confirmations.length > 0) {
-            console.log('[autoWrite] sendMessage: writeActions 为空但 confirmations 非空, 触发窄重试');
-            const fillPrompt = [
-              '【紧急补写指令】',
-              '上一轮你确认了以下信息但未输出 writeActions：',
-              ...confirmations.map((c: string, i: number) => `${i + 1}. ${c}`),
-              '',
-              '现在只补写 writeActions，不重写整段回复。',
-              '输出格式：纯 JSON 数组，每个元素含 targetFile(targetFile 是当前A类文档的文件名，如 "a/01-prd.md")、targetSection、content。',
-              '输出示例：',
-              '[{ "targetFile": "a/01-prd.md", "targetSection": "2. 背景与概述", "content": "..." }]',
-              '不得输出其他文字或代码块标记，只输出 JSON 数组。',
-            ].join('\n');
-            try {
-              const { content: fillReply } = await callAI(apiKey, get().apiEndpoint, get().model, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot, fillPrompt);
-              const jsonMatch = fillReply.match(/\[[\s\S]*?\]/);
-              if (jsonMatch) {
-                const filled = JSON.parse(jsonMatch[0]);
-                if (Array.isArray(filled) && filled.length > 0) {
-                  finalProtocol.writeActions = filled;
-                  console.log('[autoWrite] sendMessage: 窄重试成功, 补写 writeActions count=', filled.length);
-                }
-              } else {
-                console.warn('[autoWrite] sendMessage: 窄重试失败, 未从回复中提取 JSON 数组');
-              }
-            } catch (e: any) {
-              console.warn('[autoWrite] sendMessage: 窄重试异常', e?.message || e);
-            }
-          }
-
-          console.log('[autoWrite] sendMessage: 直接执行 executeProtocol');
-          executeProtocol(get(), finalProtocol).catch((err: any) => {
-            console.warn('[executeProtocol] failed', err);
-            set((s) => ({
-              messages: [...s.messages, { id: 'm' + (msgCounter++), role: 'assistant' as const, content: '自动回填失败: ' + (err?.message || String(err)), timestamp: now() }],
-            }));
-          });
-        }
-      }
+      set({ messages: newMsgs, fileLoading: { ...get().fileLoading, [get().activeFileId]: false }, questionGen: genState });
+      // Delay thinking complete to let user see final phase
+      setTimeout(() => set({ isThinkingComplete: true }), 2000);
     } catch (e: any) {
       console.error('[autoWrite] sendMessage 异常:', e.message, e.stack);
       // Store retry info so UI can show a retry bar on reload
@@ -1998,7 +1985,7 @@ export const useStore = create<AppState>()(
     const v = get().versions.find((x) => x.id === versionId) as any;
     if (!v) { console.log('[genFiles] 版本不存在'); return; }
 
-    const activeFile = findFileInTree(get().files, get().activeFileId);
+    const activeFile = findFileInTree(get().files, get().activeFileId, protocol?.writeActions?.length > 0);
     console.log('[genFiles] activeFile=', activeFile?.id, 'category=', activeFile?.category);
     if (activeFile?.category === 'a') {
       const content = get().lines.map((l) => l.text).join('\n');

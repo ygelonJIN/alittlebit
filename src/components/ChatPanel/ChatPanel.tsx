@@ -228,6 +228,8 @@ function QuestionCard({ questions, onSelectionChange, answersRef, customRef, bat
 export default function ChatPanel({ isReadOnly }: Props) {
   const messages = useStore((s) => s.messages);
   const streamingMsgId = useStore((s) => s.streamingMsgId);
+  const thinkingPhases = useStore((s) => s.thinkingPhases);
+  const isThinkingComplete = useStore((s) => s.isThinkingComplete);
   const streamingMsg = streamingMsgId ? messages.find(m => m.id === streamingMsgId) : null;
   const inputText = useStore((s) => s.inputText);
   const setInputText = useStore((s) => s.setInputText);
@@ -290,10 +292,12 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const reasoningScrolledRef = useRef(false);
 
   // Detect user manual scroll
+  const isAutoScrollingRef = useRef(false);
   useEffect(() => {
     const el = chatBodyRef.current;
     if (!el) return;
     const onScroll = () => {
+        if (isAutoScrollingRef.current) return;
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
       userScrolledRef.current = !atBottom;
     };
@@ -304,9 +308,11 @@ export default function ChatPanel({ isReadOnly }: Props) {
   // Auto-scroll to latest message (respects user scroll)
   useEffect(() => {
     if (!userScrolledRef.current && chatBodyRef.current) {
+      isAutoScrollingRef.current = true;
       chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
+      setTimeout(() => { isAutoScrollingRef.current = false; }, 200);
     }
-  }, [messages, isLoading]);
+  }, [messages, isLoading, thinkingPhases]);
 
   // Auto-scroll chat body when reasoning is expanded/collapsed
   useEffect(() => {
@@ -318,6 +324,24 @@ export default function ChatPanel({ isReadOnly }: Props) {
     });
   }, [expandedThinking]);
 
+
+  // Auto-collapse when current phase completes (thinkingTime is set)
+  useEffect(() => {
+    if (thinkingPhases.length === 0) return;
+    const lastPhase = thinkingPhases[thinkingPhases.length - 1];
+    if (lastPhase.thinkingTime !== undefined) {
+      // Phase completed — collapse it after a short delay
+      const timer = setTimeout(() => {
+        setExpandedThinking(prev => {
+          const n = new Set(prev);
+          n.delete("thinking-" + (thinkingPhases.length - 1));
+          return n;
+        });
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [thinkingPhases]);
+
   // Auto-scroll reasoning block during streaming
   useEffect(() => {
     const el = reasoningBodyRef.current;
@@ -326,14 +350,15 @@ export default function ChatPanel({ isReadOnly }: Props) {
     }
   }, [streamingMsg?.reasoning]);
 
-  // Reset reasoning scroll tracking when new streaming starts
-  const prevStreamingIdRef = useRef<string | null>(null);
+  // Manage thinking area expanded state: expand last phase, collapse others
+  const prevPhaseCountRef = useRef(0);
   useEffect(() => {
-    reasoningScrolledRef.current = false;
-    if (streamingMsgId) setExpandedThinking(prev => new Set(prev).add(streamingMsgId));
-    else if (prevStreamingIdRef.current) setExpandedThinking(prev => { const n = new Set(prev); n.delete(prevStreamingIdRef.current!); return n; });
-    prevStreamingIdRef.current = streamingMsgId;
-  }, [streamingMsgId]);
+    if (thinkingPhases.length > 0 && thinkingPhases.length !== prevPhaseCountRef.current) {
+      const lastKey = "thinking-" + (thinkingPhases.length - 1);
+      setExpandedThinking(prev => { const n = new Set(); n.add(lastKey); return n; });
+    }
+    prevPhaseCountRef.current = thinkingPhases.length;
+  }, [thinkingPhases.length]);
 
   // Thinking timer - use Date for accurate time, uses isAnyLoading to persist across document switches
   useEffect(() => {
@@ -561,34 +586,38 @@ export default function ChatPanel({ isReadOnly }: Props) {
                     提示词 {m.usage.prompt.toLocaleString()} + 补全 {m.usage.completion.toLocaleString()} = {m.usage.total.toLocaleString()} token
                   </div>
                 )}
-                {m.reasoning && m.thinkingTime && (
-                  <>
-                    <div className="thinking-toggle" onClick={() => setExpandedThinking(prev => { const n = new Set(prev); n.has(m.id) ? n.delete(m.id) : n.add(m.id); return n; })}>
-                      思考 {m.thinkingTime}s <span className="thinking-arrow">{expandedThinking.has(m.id) ? '▲' : '▼'}</span>
+                {m.reasoningPhases && m.reasoningPhases.filter(p => p.reasoning).length > 0 && m.reasoningPhases.filter(p => p.reasoning).map((phase, pi) => {
+                  const phaseKey = m.id + '-' + pi;
+                  return (
+                    <div key={phaseKey} className="loading-msg">
+                      <div className="thinking-toggle" onClick={() => setExpandedThinking(prev => { const n = new Set(prev); n.has(phaseKey) ? n.delete(phaseKey) : n.add(phaseKey); return n; })}>
+                        {phase.label} {(phase.thinkingTime || (m.id === streamingMsgId ? thinkingTime : 0)) ? ' ' + (phase.thinkingTime || (m.id === streamingMsgId ? thinkingTime : 0)) + 's' : ''} <span className="thinking-arrow">{expandedThinking.has(phaseKey) ? '▲' : '▼'}</span>
+                      </div>
+                      {expandedThinking.has(phaseKey) && (
+                        <pre className="reasoning-block">{phase.reasoning}</pre>
+                      )}
                     </div>
-                    {expandedThinking.has(m.id) && (
-                      <pre className="reasoning-block">{m.reasoning}</pre>
-                    )}
-                  </>
-                )}
+                  );
+                })}
 
               </div>
             );
           })}
-        {isLoading && !streamingMsg?.reasoning && (
-          <div className="loading-msg"><em>AI 思考中... {thinkingTime}s</em></div>
-        )}
-        {isLoading && streamingMsg?.reasoning && (
-          <div className="loading-msg">
-            <div className="thinking-toggle" onClick={() => setExpandedThinking(prev => { const n = new Set(prev); n.has(streamingMsgId!) ? n.delete(streamingMsgId!) : n.add(streamingMsgId!); return n; })}>
-              AI 思考中... {thinkingTime}s <span className="thinking-arrow">{expandedThinking.has(streamingMsgId!) ? '▲' : '▼'}</span>
-            </div>
-            {expandedThinking.has(streamingMsgId!) && (
-              <pre className="reasoning-block streaming" ref={reasoningBodyRef} onScroll={() => {
-                const el = reasoningBodyRef.current;
-                if (el) reasoningScrolledRef.current = el.scrollHeight - el.scrollTop - el.clientHeight > 30;
-              }}>{streamingMsg.reasoning}</pre>
-            )}
+        {!isThinkingComplete && thinkingPhases.length > 0 && (
+          <div className="thinking-area">
+            {thinkingPhases.map((phase, pi) => {
+              const phaseKey = "thinking-" + pi;
+              return (
+                <div key={phaseKey} className="loading-msg">
+                  <div className="thinking-toggle" onClick={() => setExpandedThinking(prev => { const n = new Set(prev); n.has(phaseKey) ? n.delete(phaseKey) : n.add(phaseKey); return n; })}>
+                    <em>{phase.label}{phase.thinkingTime !== undefined ? " " + phase.thinkingTime + "s" : " " + thinkingTime + "s"}</em> <span className="thinking-arrow">{expandedThinking.has(phaseKey) ? "▲" : "▼"}</span>
+                  </div>
+                  {expandedThinking.has(phaseKey) && phase.reasoning && (
+                    <pre className="reasoning-block">{phase.reasoning}</pre>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
         <div className="new-session-bar">
