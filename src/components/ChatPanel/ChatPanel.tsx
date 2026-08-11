@@ -229,7 +229,6 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const messages = useStore((s) => s.messages);
   const streamingMsgId = useStore((s) => s.streamingMsgId);
   const thinkingPhases = useStore((s) => s.thinkingPhases);
-  const isThinkingComplete = useStore((s) => s.isThinkingComplete);
   const streamingMsg = streamingMsgId ? messages.find(m => m.id === streamingMsgId) : null;
   const inputText = useStore((s) => s.inputText);
   const setInputText = useStore((s) => s.setInputText);
@@ -293,10 +292,12 @@ export default function ChatPanel({ isReadOnly }: Props) {
 
   // Detect user manual scroll
   const isAutoScrollingRef = useRef(false);
+  const isThinkingActiveRef = useRef(false);
   useEffect(() => {
     const el = chatBodyRef.current;
     if (!el) return;
     const onScroll = () => {
+        if (isThinkingActiveRef.current) return;
         if (isAutoScrollingRef.current) return;
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
       userScrolledRef.current = !atBottom;
@@ -305,14 +306,6 @@ export default function ChatPanel({ isReadOnly }: Props) {
     return () => el.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Auto-scroll to latest message (respects user scroll)
-  useEffect(() => {
-    if (!userScrolledRef.current && chatBodyRef.current) {
-      isAutoScrollingRef.current = true;
-      chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
-      setTimeout(() => { isAutoScrollingRef.current = false; }, 200);
-    }
-  }, [messages, isLoading, thinkingPhases]);
 
   // Auto-scroll chat body when reasoning is expanded/collapsed
   useEffect(() => {
@@ -324,23 +317,24 @@ export default function ChatPanel({ isReadOnly }: Props) {
     });
   }, [expandedThinking]);
 
-
-  // Auto-collapse when current phase completes (thinkingTime is set)
+  // Auto-collapse when reasoning stops updating (2s debounce)
+  const reasoningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastReasoningRef = useRef("");
   useEffect(() => {
-    if (thinkingPhases.length === 0) return;
-    const lastPhase = thinkingPhases[thinkingPhases.length - 1];
-    if (lastPhase.thinkingTime !== undefined) {
-      // Phase completed — collapse it after a short delay
-      const timer = setTimeout(() => {
+    const currentReasoning = thinkingPhases[0]?.reasoning || "";
+    if (currentReasoning && currentReasoning !== lastReasoningRef.current) {
+      lastReasoningRef.current = currentReasoning;
+      if (reasoningTimerRef.current) clearTimeout(reasoningTimerRef.current);
+      reasoningTimerRef.current = setTimeout(() => {
         setExpandedThinking(prev => {
           const n = new Set(prev);
-          n.delete("thinking-" + (thinkingPhases.length - 1));
+          n.delete("thinking-0");
           return n;
         });
-      }, 500);
-      return () => clearTimeout(timer);
+      }, 2000);
     }
-  }, [thinkingPhases]);
+    return () => { if (reasoningTimerRef.current) clearTimeout(reasoningTimerRef.current); };
+  }, [thinkingPhases[0]?.reasoning]);
 
   // Auto-scroll reasoning block during streaming
   useEffect(() => {
@@ -348,14 +342,14 @@ export default function ChatPanel({ isReadOnly }: Props) {
     if (el && !reasoningScrolledRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [streamingMsg?.reasoning]);
+  }, [thinkingPhases]);
 
-  // Manage thinking area expanded state: expand last phase, collapse others
+  // Expand new phase when added (dont collapse others)
   const prevPhaseCountRef = useRef(0);
   useEffect(() => {
-    if (thinkingPhases.length > 0 && thinkingPhases.length !== prevPhaseCountRef.current) {
+    if (thinkingPhases.length > prevPhaseCountRef.current) {
       const lastKey = "thinking-" + (thinkingPhases.length - 1);
-      setExpandedThinking(prev => { const n = new Set(); n.add(lastKey); return n; });
+      setExpandedThinking(prev => new Set(prev).add(lastKey));
     }
     prevPhaseCountRef.current = thinkingPhases.length;
   }, [thinkingPhases.length]);
@@ -533,93 +527,79 @@ export default function ChatPanel({ isReadOnly }: Props) {
   return (
     <div className="chat">
       <div className="chat-body" ref={chatBodyRef}>
-        {messages.map((m) => {
-            if (m.role === 'user') {
-              const displayContent = m.content
-                .replace(/【inputType=(?:answer|change)】\n/, '')
-                .replace(/【请在你的回复末尾输出.*?】\n\n/, '')
-                .replace(/\n*\[用户上传的文件：[\s\S]*$/, '').trim();
-              return (
-                <div key={m.id} className="msg-user">
-                  <div className="msg-user-content">{displayContent}</div>
-                  {m.attachments && m.attachments.length > 0 && (
-                    <div className="msg-user-attachments">
-                      {m.attachments.map((f, i) => (
-                        <span key={i} className="msg-attachment">
-                          <span className="attachment-name">{f.name}</span>
-                          <span className="attachment-size">({(f.size / 1024).toFixed(1)} KB)</span>
-                        </span>
-                      ))}
-                    </div>
-                  )}
+        {messages.map((m, mi) => {
+          const isLastUser = m.role === "user" && (mi === messages.length - 1 || messages[mi + 1]?.role !== "user");
+          const parts = [];
+          if (m.role === "user") {
+            const displayContent = m.content
+              .replace(/【inputType=(?:answer|change)】\n/, "")
+              .replace(/【请在你的回复末尾输出.*?】\n\n/, "")
+              .replace(/\n*\[用户上传的文件：[\s\S]*$/, "").trim();
+            parts.push(
+              <div key={m.id} className="msg-user">
+                <div className="msg-user-content">{displayContent}</div>
+                {m.attachments && m.attachments.length > 0 && (
+                  <div className="msg-user-attachments">
+                    {m.attachments.map((f, i) => (
+                      <span key={i} className="msg-attachment">
+                        <span className="attachment-name">{f.name}</span>
+                        <span className="attachment-size">({(f.size / 1024).toFixed(1)} KB)</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+            if (isLastUser && thinkingPhases.length > 0) {
+              parts.push(
+                <div key="thinking-area" className="thinking-area">
+                  {thinkingPhases.map((phase, pi) => {
+                    const phaseKey = "thinking-" + pi;
+                    return (
+                      <div key={phaseKey} className="loading-msg">
+                        <div className="thinking-toggle" onClick={() => setExpandedThinking(prev => { const n = new Set(prev); n.has(phaseKey) ? n.delete(phaseKey) : n.add(phaseKey); return n; })}>
+                          <em>{phase.label}{phase.thinkingTime !== undefined ? " " + phase.thinkingTime + "s" : " " + thinkingTime + "s"}</em>{phase.reasoning ? <span className="thinking-arrow">{expandedThinking.has(phaseKey) ? "▲" : "▼"}</span> : null}
+                        </div>
+                        {expandedThinking.has(phaseKey) && phase.reasoning && (
+                          <pre className="reasoning-block" ref={pi === 0 ? reasoningBodyRef : undefined}>{phase.reasoning}</pre>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             }
-            const { restContent, questions } = parseQuestions(m.content);
-            return (
-              <div key={m.id} className="msg-assistant">
-                <div
-                  className="msg-markdown"
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(restContent) }}
-                />
-                <QuestionCard questions={questions} onSelectionChange={setQuestionCompleted} answersRef={selectedAnswers} customRef={customRef} batchId={m.id} />
-                {m.questionGenMeta?.attempted && (
-                  <div className="qg-meta">
-                    {m.questionGenMeta.fillCount > 0 ? `已补缺 ${m.questionGenMeta.fillCount} 个` : ''}
-                    {m.questionGenMeta.retryCount > 0 ? `${m.questionGenMeta.fillCount > 0 ? ' · ' : ''}已重试 ${m.questionGenMeta.retryCount} 次` : ''}
-                    {m.questionGenMeta.finalStatus === 'failed' ? `${m.questionGenMeta.attempted ? ' · ' : ''}最终未达标` : ''}
-                    {m.questionGenMeta.warnings ? ` (${m.questionGenMeta.warnings})` : ''}
-                  </div>
-                )}
-                {m.protocol && (
-                  <div className="debug-toggle" onClick={() => toggleMsg(m.id)}>
-                    {expandedMsgs.has(m.id) ? '▾' : '▸'} 协议详情
-                  </div>
-                )}
-                {expandedMsgs.has(m.id) && m.protocol && (
-                  <pre className="protocol-block">
-                    {JSON.stringify(m.protocol, null, 2)}
-                  </pre>
-                )}
-                {m.usage && (
-                  <div className="token-usage">
-                    提示词 {m.usage.prompt.toLocaleString()} + 补全 {m.usage.completion.toLocaleString()} = {m.usage.total.toLocaleString()} token
-                  </div>
-                )}
-                {m.reasoningPhases && m.reasoningPhases.filter(p => p.reasoning).length > 0 && m.reasoningPhases.filter(p => p.reasoning).map((phase, pi) => {
-                  const phaseKey = m.id + '-' + pi;
-                  return (
-                    <div key={phaseKey} className="loading-msg">
-                      <div className="thinking-toggle" onClick={() => setExpandedThinking(prev => { const n = new Set(prev); n.has(phaseKey) ? n.delete(phaseKey) : n.add(phaseKey); return n; })}>
-                        {phase.label} {(phase.thinkingTime || (m.id === streamingMsgId ? thinkingTime : 0)) ? ' ' + (phase.thinkingTime || (m.id === streamingMsgId ? thinkingTime : 0)) + 's' : ''} <span className="thinking-arrow">{expandedThinking.has(phaseKey) ? '▲' : '▼'}</span>
-                      </div>
-                      {expandedThinking.has(phaseKey) && (
-                        <pre className="reasoning-block">{phase.reasoning}</pre>
-                      )}
-                    </div>
-                  );
-                })}
-
-              </div>
-            );
-          })}
-        {!isThinkingComplete && thinkingPhases.length > 0 && (
-          <div className="thinking-area">
-            {thinkingPhases.map((phase, pi) => {
-              const phaseKey = "thinking-" + pi;
-              return (
-                <div key={phaseKey} className="loading-msg">
-                  <div className="thinking-toggle" onClick={() => setExpandedThinking(prev => { const n = new Set(prev); n.has(phaseKey) ? n.delete(phaseKey) : n.add(phaseKey); return n; })}>
-                    <em>{phase.label}{phase.thinkingTime !== undefined ? " " + phase.thinkingTime + "s" : " " + thinkingTime + "s"}</em> <span className="thinking-arrow">{expandedThinking.has(phaseKey) ? "▲" : "▼"}</span>
-                  </div>
-                  {expandedThinking.has(phaseKey) && phase.reasoning && (
-                    <pre className="reasoning-block">{phase.reasoning}</pre>
-                  )}
+            return parts;
+          }
+          const { restContent, questions } = parseQuestions(m.content);
+          return (
+            <div key={m.id} className="msg-assistant">
+              <div className="msg-markdown" dangerouslySetInnerHTML={{ __html: renderMarkdown(restContent) }} />
+              <QuestionCard questions={questions} onSelectionChange={setQuestionCompleted} answersRef={selectedAnswers} customRef={customRef} batchId={m.id} />
+              {m.questionGenMeta?.attempted && (
+                <div className="qg-meta">
+                  {m.questionGenMeta.fillCount > 0 ? `已补缺 ${m.questionGenMeta.fillCount} 个` : ""}
+                  {m.questionGenMeta.retryCount > 0 ? `${m.questionGenMeta.fillCount > 0 ? " · " : ""}已重试 ${m.questionGenMeta.retryCount} 次` : ""}
+                  {m.questionGenMeta.finalStatus === "failed" ? `${m.questionGenMeta.attempted ? " · " : ""}最终未达标` : ""}
+                  {m.questionGenMeta.warnings ? ` (${m.questionGenMeta.warnings})` : ""}
                 </div>
-              );
-            })}
-          </div>
-        )}
+              )}
+              {m.protocol && (
+                <div className="debug-toggle" onClick={() => toggleMsg(m.id)}>
+                  {expandedMsgs.has(m.id) ? "▾" : "▸"} 协议详情
+                </div>
+              )}
+              {expandedMsgs.has(m.id) && m.protocol && (
+                <pre className="protocol-block">{JSON.stringify(m.protocol, null, 2)}</pre>
+              )}
+              {m.usage && (
+                <div className="token-usage">
+                  提示词 {m.usage.prompt.toLocaleString()} + 补全 {m.usage.completion.toLocaleString()} = {m.usage.total.toLocaleString()} token
+                </div>
+              )}
+            </div>
+          );
+        })}
         <div className="new-session-bar">
           <button className="btn new-session-btn" onClick={() => { useStore.getState().clearMessages(); }}>新开 Session</button>
         </div>

@@ -80,7 +80,6 @@ export interface AppState {
   questionGen: QuestionGenState | null;
   streamingMsgId: string | null;
   thinkingPhases: Array<{ label: string; reasoning: string; thinkingTime?: number }>;
-  isThinkingComplete: boolean;
 }
 
 // ── Heading node (for document section matching) ──
@@ -1592,7 +1591,6 @@ export const useStore = create<AppState>()(
   questionGen: null,
   streamingMsgId: null,
   thinkingPhases: [],
-  isThinkingComplete: false,
 
   setTheme: (theme) => {
     applyThemeMode(theme);
@@ -1771,12 +1769,13 @@ export const useStore = create<AppState>()(
       const streamMsgId = 'm' + (msgCounter++);
       const streamMsg: ChatMessage = { id: streamMsgId, role: 'assistant', content: '', timestamp: now(), reasoning: '' };
       const phaseStart = Date.now();
-      set({ messages: [...get().messages, streamMsg], streamingMsgId: streamMsgId, thinkingPhases: [{ label: 'AI 思考中', reasoning: '' }], isThinkingComplete: false });
+      set({ messages: [...get().messages, streamMsg], streamingMsgId: streamMsgId, thinkingPhases: [{ label: 'AI 思考中', reasoning: '' }] });
       const { content: reply, usage: firstUsage, reasoning } = await callAI(apiKey, get().apiEndpoint, get().model, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot,
         undefined, (accReasoning, accContent) => {
           const visible = accContent.replace(/```json[\s\S]*?```/g, '').replace(/```json[\s\S]*$/g, '').trim();
           const msgs = get().messages.map(m => m.id === streamMsgId ? { ...m, reasoning: accReasoning, content: visible || accContent } : m);
           set({ messages: msgs, thinkingPhases: [{ label: 'AI 思考中', reasoning: accReasoning }] });
+          window.dispatchEvent(new Event('alittlebit-scroll'));
         }
       );
       // Phase 1 done
@@ -1829,11 +1828,11 @@ export const useStore = create<AppState>()(
 
       // 执行 writeActions 写文档
       if (protocol?.writeActions?.length > 0) {
+        const writeStart = Date.now();
         set(prev => ({ thinkingPhases: [...prev.thinkingPhases, { label: "写入文档中", reasoning: "" }] }));
-        await new Promise(r => setTimeout(r, 50));
         await executeProtocol(get(), protocol);
         console.log("[autoWrite] executeProtocol 完成");
-        set(prev => ({ thinkingPhases: prev.thinkingPhases.map((p, i) => i === prev.thinkingPhases.length - 1 ? { ...p, label: "写入文档", thinkingTime: 0 } : p) }));
+        set(prev => ({ thinkingPhases: prev.thinkingPhases.map((p, i) => i === prev.thinkingPhases.length - 1 ? { ...p, label: "写入文档", thinkingTime: Math.floor((Date.now() - writeStart) / 1000) } : p) }));
       }
 
       // ── 第二步：处理问题数量（不阻塞写入） ──
@@ -1842,7 +1841,6 @@ export const useStore = create<AppState>()(
       if (questionCount > 1) {
         console.log('[autoWrite] 第二步: ensureQuestionCount...');
         const phase3Start = Date.now();
-        set(prev => ({ thinkingPhases: [...prev.thinkingPhases, { label: "二次提问中", reasoning: "" }] }));
         const result = await ensureQuestionCount(reply, questionCount, snapshot,
           apiKey, get().apiEndpoint, get().model, get().messages, get().versions, get().activeVersionId,
           get().files, get().activeFileId, protocol?.writeActions?.length > 0);
@@ -1855,8 +1853,10 @@ export const useStore = create<AppState>()(
             total: totalUsage.total + result.extraUsage.total,
           };
         }
-        // Phase 3 done
-        set(prev => ({ thinkingPhases: prev.thinkingPhases.map((p, i) => i === prev.thinkingPhases.length - 1 ? { ...p, label: "二次提问", thinkingTime: Math.floor((Date.now() - phase3Start) / 1000) } : p) }));
+        // Phase 3 done — only add if ensureQuestionCount actually retried
+        if (genState && genState.attempt > 0) {
+          set(prev => ({ thinkingPhases: [...prev.thinkingPhases, { label: "二次提问", reasoning: "已补充", thinkingTime: Math.floor((Date.now() - phase3Start) / 1000) }] }));
+        }
 
       }
       // Strip JSON and update message
@@ -1867,7 +1867,6 @@ export const useStore = create<AppState>()(
         raw: finalReply, protocol,
         usage: totalUsage.total > 0 ? totalUsage : undefined,
         reasoning,
-        reasoningPhases: get().thinkingPhases,
         questionGenMeta: genState ? {
           attempted: genState.attempt > 0,
           attemptCount: genState.attempt,
@@ -1879,7 +1878,6 @@ export const useStore = create<AppState>()(
       } : m);
       set({ messages: newMsgs, fileLoading: { ...get().fileLoading, [get().activeFileId]: false }, questionGen: genState });
       // Delay thinking complete to let user see final phase
-      setTimeout(() => set({ isThinkingComplete: true }), 2000);
     } catch (e: any) {
       console.error('[autoWrite] sendMessage 异常:', e.message, e.stack);
       // Store retry info so UI can show a retry bar on reload
