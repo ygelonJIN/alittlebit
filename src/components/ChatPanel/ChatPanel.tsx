@@ -293,6 +293,10 @@ export default function ChatPanel({ isReadOnly }: Props) {
   // Detect user manual scroll
   const isAutoScrollingRef = useRef(false);
   const isThinkingActiveRef = useRef(false);
+  // Block scroll handler during thinking to prevent DOM changes from disabling auto-scroll
+  useEffect(() => {
+    isThinkingActiveRef.current = isLoading;
+  }, [isLoading]);
   useEffect(() => {
     const el = chatBodyRef.current;
     if (!el) return;
@@ -301,48 +305,76 @@ export default function ChatPanel({ isReadOnly }: Props) {
         if (isAutoScrollingRef.current) return;
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
       userScrolledRef.current = !atBottom;
+      if (atBottom) userScrolledRef.current = false; // Re-enable auto-scroll when back at bottom
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
   }, []);
 
 
-  // Auto-scroll chat body when reasoning is expanded/collapsed
+  // Auto-scroll reasoning block when expanded/collapsed (dont force chat body)
   useEffect(() => {
-    if (chatBodyRef.current) chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
-    // Also scroll reasoning block to bottom after DOM update
     requestAnimationFrame(() => {
       const el = reasoningBodyRef.current;
       if (el) el.scrollTop = el.scrollHeight;
     });
   }, [expandedThinking]);
 
-  // Auto-collapse when reasoning stops updating (2s debounce)
-  const reasoningTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastReasoningRef = useRef("");
+  // Auto-collapse when reasoning stops updating (per-phase 2s debounce)
+  // Skipped when label contains "中" (phase in progress, e.g. "写入文档中", "分析提问中")
+  const phaseTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const lastPhaseReasoningRef = useRef<Map<number, string>>(new Map());
   useEffect(() => {
-    const currentReasoning = thinkingPhases[0]?.reasoning || "";
-    if (currentReasoning && currentReasoning !== lastReasoningRef.current) {
-      lastReasoningRef.current = currentReasoning;
-      if (reasoningTimerRef.current) clearTimeout(reasoningTimerRef.current);
-      reasoningTimerRef.current = setTimeout(() => {
-        setExpandedThinking(prev => {
-          const n = new Set(prev);
-          n.delete("thinking-0");
-          return n;
-        });
-      }, 2000);
-    }
-    return () => { if (reasoningTimerRef.current) clearTimeout(reasoningTimerRef.current); };
-  }, [thinkingPhases[0]?.reasoning]);
+    // Don't collapse phases that are still in progress (label contains "中")
+    const hasActivePhase = thinkingPhases.some(p => p.label.includes('中'));
+    if (hasActivePhase) return;
+    thinkingPhases.forEach((phase, idx) => {
+      if (!phase.reasoning) return;
+      const prev = lastPhaseReasoningRef.current.get(idx);
+      if (phase.reasoning !== prev) {
+        lastPhaseReasoningRef.current.set(idx, phase.reasoning);
+        const existing = phaseTimersRef.current.get(idx);
+        if (existing) clearTimeout(existing);
+        phaseTimersRef.current.set(idx, setTimeout(() => {
+          setExpandedThinking(prev => {
+            const n = new Set(prev);
+            n.delete("thinking-" + idx);
+            return n;
+          });
+          phaseTimersRef.current.delete(idx);
+        }, 2000));
+      }
+    });
+  }, [thinkingPhases]);
+  // Cleanup timers only on unmount
+  useEffect(() => () => { phaseTimersRef.current.forEach(t => clearTimeout(t)); }, []);
 
-  // Auto-scroll reasoning block during streaming
+  // Auto-scroll reasoning block during streaming (respects manual scroll within reasoning)
   useEffect(() => {
     const el = reasoningBodyRef.current;
     if (el && !reasoningScrolledRef.current) {
       el.scrollTop = el.scrollHeight;
     }
   }, [thinkingPhases]);
+  // Reset reasoning scroll state when new phase is added
+  useEffect(() => {
+    reasoningScrolledRef.current = false;
+    const el = reasoningBodyRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [thinkingPhases.length]);
+
+  // Listen for alittlebit-scroll events from store streaming callbacks
+  // Respects user scroll — only auto-scrolls when user is at/near bottom
+  useEffect(() => {
+    const onScroll = () => {
+      if (isThinkingActiveRef.current) return; // During thinking, don't force scroll
+      if (userScrolledRef.current) return; // User scrolled away, don't force
+      const el = reasoningBodyRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    };
+    window.addEventListener('alittlebit-scroll', onScroll);
+    return () => window.removeEventListener('alittlebit-scroll', onScroll);
+  }, []);
 
   // Expand new phase when added (dont collapse others)
   const prevPhaseCountRef = useRef(0);
@@ -355,6 +387,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
   }, [thinkingPhases.length]);
 
   // Thinking timer - use Date for accurate time, uses isAnyLoading to persist across document switches
+  // Timer runs while any document is loading. Phase thinkingTime is stored on completion and takes over display.
   useEffect(() => {
     if (isAnyLoading && !thinkingTimerRef.current) {
       thinkingStartRef.current = Date.now();
@@ -364,17 +397,6 @@ export default function ChatPanel({ isReadOnly }: Props) {
     } else if (!isAnyLoading && thinkingTimerRef.current) {
       clearInterval(thinkingTimerRef.current);
       thinkingTimerRef.current = null;
-      const finalTime = Math.floor((Date.now() - thinkingStartRef.current) / 1000);
-      if (finalTime > 0) {
-        const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant');
-        if (lastAssistantMsg && !lastAssistantMsg.thinkingTime) {
-          useStore.setState((s) => ({
-            messages: s.messages.map(m =>
-              m.id === lastAssistantMsg.id ? { ...m, thinkingTime: finalTime } : m
-            )
-          }));
-        }
-      }
     }
     return () => {
       if (thinkingTimerRef.current) {
@@ -455,6 +477,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
 
   const doSend = () => {
     setThinkingTime(0);
+    if (thinkingTimerRef.current) { clearInterval(thinkingTimerRef.current); thinkingTimerRef.current = null; }
     userScrolledRef.current = false;
     if (isLoading || isReadOnly) return;
     const text = inputText.trim();
@@ -558,10 +581,14 @@ export default function ChatPanel({ isReadOnly }: Props) {
                     return (
                       <div key={phaseKey} className="loading-msg">
                         <div className="thinking-toggle" onClick={() => setExpandedThinking(prev => { const n = new Set(prev); n.has(phaseKey) ? n.delete(phaseKey) : n.add(phaseKey); return n; })}>
-                          <em>{phase.label}{phase.thinkingTime !== undefined ? " " + phase.thinkingTime + "s" : " " + thinkingTime + "s"}</em>{phase.reasoning ? <span className="thinking-arrow">{expandedThinking.has(phaseKey) ? "▲" : "▼"}</span> : null}
+                          <em>{phase.label}{phase.thinkingTime !== undefined ? " " + phase.thinkingTime + "s" : phase.startTime ? " " + Math.floor((Date.now() - phase.startTime) / 1000) + "s" : " " + thinkingTime + "s"}</em>{phase.reasoning ? <span className="thinking-arrow">{expandedThinking.has(phaseKey) ? "▲" : "▼"}</span> : null}
                         </div>
                         {expandedThinking.has(phaseKey) && phase.reasoning && (
-                          <pre className="reasoning-block" ref={pi === 0 ? reasoningBodyRef : undefined}>{phase.reasoning}</pre>
+                          <pre className="reasoning-block" ref={pi === thinkingPhases.length - 1 ? reasoningBodyRef : undefined} onScroll={(e) => {
+                            const el = e.currentTarget;
+                            const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+                            reasoningScrolledRef.current = !atBottom;
+                          }}>{phase.reasoning}</pre>
                         )}
                       </div>
                     );

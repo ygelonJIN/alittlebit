@@ -79,7 +79,7 @@ export interface AppState {
   setUpstreamSelection: (ids: string[] | null) => void;
   questionGen: QuestionGenState | null;
   streamingMsgId: string | null;
-  thinkingPhases: Array<{ label: string; reasoning: string; thinkingTime?: number }>;
+  thinkingPhases: Array<{ label: string; reasoning: string; thinkingTime?: number; startTime?: number }>;
 }
 
 // ── Heading node (for document section matching) ──
@@ -402,6 +402,54 @@ const SYSTEM_PROMPT = [
 ].join('\n');
 
 const STATIC_SYSTEM = SYSTEM_PROMPT;
+
+const FILL_SYSTEM_PROMPT = `你是一个文档写入助手。你的唯一任务是根据对话中用户已确认的信息，输出JSON协议块写入当前文档。
+
+规则：
+1. 只输出一个 \`\`\`json 代码块，不得输出其他任何文字
+2. 不要分析、不要提问、不要总结、不要输出情况理解
+3. 从对话中提取用户已确认的信息，写入对应章节
+4. 如果用户确认了多个章节的信息，writeActions可以有多个
+5. questions数组留空
+
+输出格式：
+\`\`\`json
+{
+  "writeActions": [{ "targetFile": "文件名.md", "operation": "upsert", "targetSection": "章节标题", "content": "完整章节内容" }],
+  "currentDocument": { "type": "文档类型", "file": "文件名.md", "locked": false },
+  "documentChain": [{ "type": "文档类型", "file": "文件名.md" }],
+  "shouldAdvance": false,
+  "questions": []
+}
+\`\`\``;
+
+const QUESTIONS_SYSTEM_PROMPT = `你是一个问题补充助手。根据已有问题列表，只输出缺失编号的问题。
+
+规则：
+1. 只输出缺失编号的问题，不得输出已有问题
+2. 每个问题格式：### 编号. 问题文本
+3. 不得输出分析、总结或其他文字
+4. 问题风格和已有问题保持一致`;
+
+const ANALYSIS_SYSTEM_PROMPT = `你是 alittlebit 的分析师。你的唯一任务是分析当前文档状态，输出情况理解和问题列表。
+
+规则：
+1. 输出格式必须包含以下 ### 段落：当前理解、缺口分析、状态判断、下一步、本轮问题
+2. 不得输出 \`\`\`json 协议块，不得输出 writeActions
+3. 不得输出文档写入指令
+4. 看文档快照判断哪些章节为空/有内容，只追问真正空白的章节
+5. 文档中已有 N/A 标注的章节不是缺口，跳过
+6. 每个问题必须有编号和 A/B/C 选项
+
+### 本轮问题 格式：
+1
+**问题文本**
+- A：选项A
+- B：选项B
+- C：选项C
+
+问题数量由运行时指令指定。`;
+
 const B_TEMPLATE_FILES = new Set([
   'question_log.md',
   'change_log.md',
@@ -489,7 +537,6 @@ function protocolHasRequiredFields(protocol: any): boolean {
     && protocol.currentDocument
     && Array.isArray(protocol.documentChain)
     && Array.isArray(protocol.writeActions)
-    && protocol.uiActions
     && typeof protocol.shouldAdvance === 'boolean';
 }
 
@@ -624,24 +671,37 @@ function mergeAContent(currentContent: string, action: any): MergeResult {
     return { ok: false, content: currentContent, reason: 'not_found' };
   }
 
-  // Level-aware stray header cleaning: only cut at numbered section headers (e.g., "## 2. XXX"), keep sub-headers
+  // Level-aware stray header cleaning: keep target heading's body, cut at next same-level heading
   const targetLevel = match.node.level;
   const instLines = instruction.split('\n');
-  let cutIdx = instLines.length;
+  let keepStart = 0;
+  let keepEnd = instLines.length;
+
+  // Find the target heading in the content (may have ## prefix or not)
   for (let i = 0; i < instLines.length; i++) {
-    const m = instLines[i].match(/^(#{1,6})\s+/);
-    if (m && m[1].length <= targetLevel && /^\d+\.\s/.test(instLines[i].replace(/^#+\s*/, ''))) {
-      // Skip if this IS the target section heading itself (first matching numbered header)
-      const lineText = instLines[i].replace(/^#+\s*/, '').trim();
-      if (i === 0 && section && lineText.includes(section.replace(/^\d+\.\s*/, ''))) continue;
-      cutIdx = i;
+    const hm = instLines[i].match(/^(#{1,6})\s+(.*)$/);
+    if (!hm) continue;
+    const hLevel = hm[1].length;
+    const hText = hm[2].trim();
+    // Normalize: strip number prefix from both for comparison
+    const hNorm = hText.replace(/^\d+\.\s*/, '');
+    const sNorm = section.replace(/^#+\s*/, '').replace(/^\d+\.\s*/, '');
+    if (hLevel === targetLevel && hNorm === sNorm) {
+      // Found the target heading — content starts after it
+      keepStart = i + 1;
+      continue;
+    }
+    // Found a same-level numbered heading AFTER target — that's the boundary
+    if (keepStart > 0 && hLevel <= targetLevel) {
+      keepEnd = i;
       break;
     }
   }
-  if (cutIdx < instLines.length) {
-    const stripped = instLines.slice(0, cutIdx).join('\n').trim();
-    console.log('[autoWrite] mergeAContent: 裁剪越界标题, 原长度=', instruction.length, '裁剪后=', stripped.length, 'targetLevel=', targetLevel, '越界行=', instLines[cutIdx].slice(0, 40));
-    instruction = stripped;
+
+  if (keepStart > 0) {
+    const trimmed = instLines.slice(keepStart, keepEnd).join('\n').trim();
+    console.log('[autoWrite] mergeAContent: 提取target body, keepStart=', keepStart, 'keepEnd=', keepEnd, '原长度=', instruction.length, '提取后=', trimmed.length);
+    instruction = trimmed;
   }
 
   console.log('[autoWrite] mergeAContent: section=', section, 'instruction length=', instruction.length);
@@ -877,7 +937,7 @@ function extractProtocol(aiResponse: string): any | null {
 }
 
 
-async function executeProtocol(store: any, protocol: any) {
+async function executeProtocol(store: any, protocol: any, onProgress?: (label: string) => void) {
   console.log('[autoWrite] executeProtocol: 开始, protocol keys=', Object.keys(protocol || {}));
   const writeActions = Array.isArray(protocol?.writeActions) ? protocol.writeActions : [];
   const uiActions = protocol?.uiActions ?? null;
@@ -903,6 +963,11 @@ async function executeProtocol(store: any, protocol: any) {
         continue;
       }
       console.log('[autoWrite] executeProtocol: 执行 action section=', action?.targetSection);
+      if (onProgress) {
+        const progressLabel = '写入 ' + (action?.targetSection || '...');
+        console.log('[DEBUG-onProgress] 更新label为:', progressLabel);
+        onProgress(progressLabel);
+      }
       const mergeResult = mergeAContent(workingContent, action);
       if (!mergeResult.ok) {
         console.warn('[autoWrite] executeProtocol: mergeAContent 失败, reason=', mergeResult.reason, 'section=', action?.targetSection);
@@ -1239,14 +1304,14 @@ function validateQuestionBlock(block: ParsedQuestionBlock, targetCount: number):
 
 interface TokenUsage { prompt: number; completion: number; total: number; }
 
-async function callAI(apiKey: string, endpoint: string, model: string, msgs: ChatMessage[], versions: any[], activeId: string, questionCount: number, files: FileItem[], activeFileId: string, snapshot: string, retryContext?: string, onChunk?: (reasoning: string, content: string) => void): Promise<{ content: string; reasoning?: string; usage: TokenUsage | null }> {
+async function callAI(apiKey: string, endpoint: string, model: string, msgs: ChatMessage[], versions: any[], activeId: string, questionCount: number, files: FileItem[], activeFileId: string, snapshot: string, retryContext?: string, onChunk?: (reasoning: string, content: string) => void, systemPrompt?: string): Promise<{ content: string; reasoning?: string; usage: TokenUsage | null }> {
   let runtimeCtx = buildRuntimeContext(questionCount, versions, activeId, files, activeFileId, snapshot);
   if (retryContext) runtimeCtx = retryContext + '\n\n' + runtimeCtx;
 
   const chatMsgs = msgs.map((m) => ({ role: m.role as string, content: m.content }));
   const lastUser = [...chatMsgs].reverse().find(m => m.role === 'user');
   const msgList = [
-    { role: 'system', content: STATIC_SYSTEM },
+    { role: 'system', content: systemPrompt || STATIC_SYSTEM },
     { role: 'user', content: runtimeCtx },
     ...(lastUser ? [lastUser] : []),
   ];
@@ -1453,7 +1518,7 @@ async function ensureQuestionCount(
     const fillPrompt = buildFillPrompt(validation.missingIds, block.questions, snapshot);
     try {
       const { content: fillReply, usage: fillUsage } = await callAI(apiKey, endpoint, model, msgs, versions, activeVersionId,
-        questionCount, files, activeFileId, fillPrompt);
+        questionCount, files, activeFileId, snapshot, fillPrompt, undefined, QUESTIONS_SYSTEM_PROMPT);
       addUsage(fillUsage);
       const fillBlock = parseQuestionsBlock(fillReply);
       let { block: trimmedFill, validation: fillVal } = trimAndValidate(fillBlock, questionCount, genState);
@@ -1728,7 +1793,6 @@ export const useStore = create<AppState>()(
       }));
       return;
     }
-
     if (!apiKey) {
       set({
         messages: [...get().messages, { id: 'm' + (msgCounter++), role: 'assistant' as const, content: '请先在设置中配置 API Key。', timestamp: '' }],
@@ -1736,14 +1800,13 @@ export const useStore = create<AppState>()(
       });
       return;
     }
-    const protocolPrefix = '【请在你的回复末尾输出 ```json 协议块，写入文档。】\n\n';
-    const augmentedText = text.startsWith('【请在你的回复末尾') ? text : protocolPrefix + text;
+
+    // No protocol prefix in user message — write prompt handled by FILL_SYSTEM_PROMPT
     const attachments = get().pendingAttachments;
-    const userMsg: ChatMessage = { id: 'm' + (msgCounter++), role: 'user', content: augmentedText, timestamp: now(), attachments: attachments && attachments.length > 0 ? attachments.map(a => ({ name: a.name, size: a.size })) : undefined };
+    const userMsg: ChatMessage = { id: 'm' + (msgCounter++), role: 'user', content: text, timestamp: now(), attachments: attachments && attachments.length > 0 ? attachments.map(a => ({ name: a.name, size: a.size })) : undefined };
     set({ pendingAttachments: undefined });
     console.log('[sendMsg] ========== 用户发送消息 ==========');
     console.log('[sendMsg] 内容长度:', text.length, '当前文件:', activeFileId);
-    console.log('[sendMsg] 消息内容:', text.slice(0, 500));
     set((s) => ({ messages: [...s.messages, userMsg], inputText: '', fileLoading: { ...s.fileLoading, [s.activeFileId]: true } }));
 
     try {
@@ -1765,85 +1828,161 @@ export const useStore = create<AppState>()(
       const snapshot = upstreamContent
         ? '【上游文档内容】\n' + upstreamContent + '\n\n【当前文档内容】\n' + rawSnapshot
         : rawSnapshot;
-      // Create empty assistant message for streaming updates
+      let totalUsage: TokenUsage = { prompt: 0, completion: 0, total: 0 };
+
+      // ═══ 阶段一：写入文档（循环直到成功）═══
       const streamMsgId = 'm' + (msgCounter++);
       const streamMsg: ChatMessage = { id: streamMsgId, role: 'assistant', content: '', timestamp: now(), reasoning: '' };
-      const phaseStart = Date.now();
-      set({ messages: [...get().messages, streamMsg], streamingMsgId: streamMsgId, thinkingPhases: [{ label: 'AI 思考中', reasoning: '' }] });
-      const { content: reply, usage: firstUsage, reasoning } = await callAI(apiKey, get().apiEndpoint, get().model, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot,
-        undefined, (accReasoning, accContent) => {
-          const visible = accContent.replace(/```json[\s\S]*?```/g, '').replace(/```json[\s\S]*$/g, '').trim();
-          const msgs = get().messages.map(m => m.id === streamMsgId ? { ...m, reasoning: accReasoning, content: visible || accContent } : m);
-          set({ messages: msgs, thinkingPhases: [{ label: 'AI 思考中', reasoning: accReasoning }] });
-          window.dispatchEvent(new Event('alittlebit-scroll'));
+      const phase1Start = Date.now();
+      set({ messages: [...get().messages, streamMsg], streamingMsgId: streamMsgId, thinkingPhases: [{ label: 'AI 思考中（文档写入）', reasoning: '', startTime: phase1Start }] });
+
+      let protocol: any = null;
+      let writeAttempt = 0;
+      console.log('[DEBUG-Phase1] ═══ 阶段一开始 ═══ thinkingPhases:', get().thinkingPhases.length);
+      while (writeAttempt < 5) {
+        console.log('[DEBUG-Phase1] >>> writeAttempt', writeAttempt + 1, '开始');
+        if (writeAttempt > 0) {
+          console.log('[DEBUG-Phase1] 重试, 更新标签为第', writeAttempt + 1, '次文档写入');
+          set(prev => ({
+            thinkingPhases: [{ label: `AI 思考中（第${writeAttempt + 1}次文档写入）`, reasoning: '', startTime: Date.now() }],
+            fileLoading: { ...prev.fileLoading, [prev.activeFileId]: true },
+          }));
         }
-      );
-      // Phase 1 done
-      set(prev => ({
-        messages: prev.messages.map(m => m.id === streamMsgId ? { ...m, reasoning } : m),
-        streamingMsgId: null,
-        thinkingPhases: [{ label: 'AI 思考', reasoning, thinkingTime: Math.floor((Date.now() - phaseStart) / 1000) }]
-      }));
-      console.log('[autoWrite] callAI returned, reply length:', reply?.length, 'reasoning length:', reasoning?.length);
-      const parsedStage = parseStage(reply);
-      let totalUsage: TokenUsage = firstUsage ?? { prompt: 0, completion: 0, total: 0 };
-
-      // ── 第一步：立刻提取 writeActions 并写文档 ──
-      let protocol = extractProtocol(reply);
-      console.log('[autoWrite] 第一步: protocol?', !!protocol, 'writeActions:', protocol?.writeActions?.length);
-
-      if (!protocol || !Array.isArray(protocol.writeActions) || protocol.writeActions.length === 0) {
-        // writeActions 为空 → Phase 2 补写入
-        console.log('[autoWrite] writeActions 为空, 触发补写入调用');
-        const phase2Start = Date.now();
-        set(prev => ({ thinkingPhases: [...prev.thinkingPhases, { label: '二次写入文档中', reasoning: '' }], fileLoading: { ...prev.fileLoading, [prev.activeFileId]: true } }));
-        const fillMsgId = 'm' + (msgCounter++);
-        const fillMsg: ChatMessage = { id: fillMsgId, role: 'assistant', content: '', timestamp: now(), reasoning: '' };
-        set(prev => ({ messages: [...prev.messages, fillMsg], streamingMsgId: fillMsgId }));
         try {
-          const fillWA = "补写writeActions。只输出JSON协议块。";
-          const { content: fillReply, reasoning: fillReasoning } = await callAI(apiKey, get().apiEndpoint, get().model, [...get().messages], get().versions, get().activeVersionId, questionCount, get().files, get().activeFileId, snapshot, fillWA, (accR: string, accC: string) => {
-              const visible = accC.replace(/```json[\s\S]*?```/g, '').replace(/```json[\s\S]*$/g, '').trim();
-              const msgs = get().messages.map(m => m.id === fillMsgId ? { ...m, reasoning: accR, content: visible || accC } : m);
+          console.log('[DEBUG-Phase1] 调用 callAI, systemPrompt=FILL_SYSTEM_PROMPT');
+          const { content: writeReply, usage: writeUsage, reasoning: writeReasoning } = await callAI(
+            apiKey, get().apiEndpoint, get().model,
+            [...get().messages], get().versions, get().activeVersionId, questionCount,
+            get().files, get().activeFileId, snapshot,
+            undefined,
+            (accR: string, accC: string) => {
+              const msgs = get().messages.map(m => m.id === streamMsgId ? { ...m, reasoning: accR } : m);
               const phases = get().thinkingPhases.map((p, i) => i === get().thinkingPhases.length - 1 ? { ...p, reasoning: accR } : p);
               set({ messages: msgs, thinkingPhases: phases });
-            }
+              window.dispatchEvent(new Event('alittlebit-scroll'));
+            },
+            FILL_SYSTEM_PROMPT
           );
-          // Phase 2 done
-          set(prev => ({
-            messages: prev.messages.map(m => m.id === fillMsgId ? { ...m, reasoning: fillReasoning || '', content: fillReply.replace(/```json[\s\S]*?```/g, '').trim() || fillReply } : m),
-            streamingMsgId: null,
-            thinkingPhases: prev.thinkingPhases.map((p, i) => i === prev.thinkingPhases.length - 1 ? { ...p, label: '二次写入文档', reasoning: fillReasoning || '', thinkingTime: Math.floor((Date.now() - phase2Start) / 1000) } : p)
-          }));
-          const fillProtocol = extractProtocol(fillReply);
-          if (fillProtocol?.writeActions?.length > 0) {
-            protocol = fillProtocol;
-            console.log('[autoWrite] 补写入成功, writeActions:', protocol.writeActions.length);
+          console.log('[DEBUG-Phase1] callAI 返回, reply长度:', writeReply?.length, 'reasoning长度:', writeReasoning?.length);
+          console.log('[DEBUG-Phase1] reply前200字:', writeReply?.slice(0, 200));
+          console.log('[DEBUG-Phase1] reply后200字:', writeReply?.slice(-200));
+          if (writeUsage) {
+            totalUsage = { prompt: totalUsage.prompt + writeUsage.prompt, completion: totalUsage.completion + writeUsage.completion, total: totalUsage.total + writeUsage.total };
           }
+          // Keep "写入文档中" label — onProgress will update it during executeProtocol
+          set(prev => ({
+            messages: prev.messages.map(m => m.id === streamMsgId ? { ...m, reasoning: writeReasoning || '' } : m),
+            streamingMsgId: null,
+          }));
+          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+          protocol = extractProtocol(writeReply);
+          console.log('[DEBUG-Phase1] extractProtocol结果:', protocol ? '有protocol' : 'null', 'writeActions:', protocol?.writeActions?.length);
+          if (protocol) {
+            console.log('[DEBUG-Phase1] protocol keys:', Object.keys(protocol));
+            if (protocol.writeActions) {
+              protocol.writeActions.forEach((a: any, i: number) => {
+                console.log('[DEBUG-Phase1] writeAction[' + i + ']:', 'targetFile=', a.targetFile, 'targetSection=', a.targetSection, 'content长度=', a.content?.length);
+              });
+            }
+          }
+          if (protocol?.writeActions?.length > 0) {
+            // 成功：写入文档
+            console.log('[DEBUG-Phase1] ✅ 有writeActions, 开始 executeProtocol...');
+            const writePhaseIdx = get().thinkingPhases.length - 1; // index of the write phase
+            await executeProtocol(get(), protocol, (label: string) => {
+              const phases = get().thinkingPhases.map((p, i) => i === writePhaseIdx ? { ...p, label } : p);
+              set({ thinkingPhases: phases });
+            });
+            console.log('[DEBUG-Phase1] ✅ executeProtocol 完成');
+            const phase1Time = Math.floor((Date.now() - phase1Start) / 1000);
+            set(prev => ({
+              thinkingPhases: prev.thinkingPhases.map((p, i) => i === writePhaseIdx ? { ...p, label: 'AI 思考（文档写入）', thinkingTime: phase1Time } : p),
+            }));
+            console.log('[DEBUG-Phase1] ✅ 阶段一完成, 写入成功, 用时', phase1Time, '秒');
+            break;
+          }
+          // 失败：重试
+          console.warn('[DEBUG-Phase1] ❌ writeActions 为空, writeAttempt递增为', writeAttempt + 1);
+          writeAttempt++;
         } catch (e: any) {
-          console.warn('[autoWrite] 补写入失败:', e?.message);
-          set(prev => ({ streamingMsgId: null }));
+          console.error('[DEBUG-Phase1] ❌ 阶段一异常:', e?.message, e?.stack);
+          writeAttempt++;
+        }
+      }
+      if (writeAttempt >= 5) {
+        console.error('[DEBUG-Phase1] ❌❌❌ 阶段一重试5次全部失败, 跳到阶段二');
+      }
+
+      // ═══ 阶段二：分析提问（循环直到成功）═══
+      const analysisMsgId = 'm' + (msgCounter++);
+      const analysisMsg: ChatMessage = { id: analysisMsgId, role: 'assistant', content: '', timestamp: now(), reasoning: '' };
+      const phase2Start = Date.now();
+      set(prev => ({
+        messages: [...prev.messages, analysisMsg],
+        streamingMsgId: analysisMsgId,
+        thinkingPhases: [...prev.thinkingPhases, { label: 'AI 思考中（分析提问）', reasoning: '', startTime: phase2Start }],
+      }));
+
+      let finalReply = '';
+      let analysisAttempt = 0;
+      console.log('[DEBUG-Phase2] ═══ 阶段二开始 ═══ thinkingPhases:', get().thinkingPhases.length);
+      while (analysisAttempt < 5) {
+        console.log('[DEBUG-Phase2] >>> analysisAttempt', analysisAttempt + 1, '开始');
+        if (analysisAttempt > 0) {
+          // Update label with retry count
+          set(prev => {
+            const phases = [...prev.thinkingPhases];
+            phases[phases.length - 1] = { label: `AI 思考中（第${analysisAttempt + 1}次分析提问）`, reasoning: '', startTime: Date.now() };
+            return { thinkingPhases: phases };
+          });
+        }
+        try {
+          const { content: analysisReply, usage: analysisUsage, reasoning: analysisReasoning } = await callAI(
+            apiKey, get().apiEndpoint, get().model,
+            [...get().messages], get().versions, get().activeVersionId, questionCount,
+            get().files, get().activeFileId, snapshot,
+            undefined,
+            (accR: string, accC: string) => {
+              const visible = accC.replace(/```json[\s\S]*?```/g, '').replace(/```json[\s\S]*$/g, '').trim();
+              const msgs = get().messages.map(m => m.id === analysisMsgId ? { ...m, reasoning: accR, content: visible || accC } : m);
+              const phases = get().thinkingPhases.map((p, i) => i === get().thinkingPhases.length - 1 ? { ...p, reasoning: accR } : p);
+              set({ messages: msgs, thinkingPhases: phases });
+              window.dispatchEvent(new Event('alittlebit-scroll'));
+            },
+            ANALYSIS_SYSTEM_PROMPT
+          );
+          if (analysisUsage) {
+            totalUsage = { prompt: totalUsage.prompt + analysisUsage.prompt, completion: totalUsage.completion + analysisUsage.completion, total: totalUsage.total + analysisUsage.total };
+          }
+          const phase2Time = Math.floor((Date.now() - phase2Start) / 1000);
+          set(prev => ({
+            messages: prev.messages.map(m => m.id === analysisMsgId ? { ...m, reasoning: analysisReasoning || '', content: analysisReply.replace(/```json[\s\S]*?```/g, '').trim() || analysisReply } : m),
+            streamingMsgId: null,
+            thinkingPhases: prev.thinkingPhases.map((p, i) => i === prev.thinkingPhases.length - 1 ? { ...p, label: 'AI 思考（分析提问）', reasoning: analysisReasoning || '', thinkingTime: phase2Time } : p),
+          }));
+          await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+          // Check if analysis has valid questions
+          const hasQuestions = /###\s*本轮问题/.test(analysisReply);
+          finalReply = analysisReply;
+          console.log('[autoWrite] 阶段二: analysisAttempt', analysisAttempt + 1, 'hasQuestions:', hasQuestions);
+          if (hasQuestions) break;
+          console.warn('[autoWrite] 阶段二: 无本轮问题, 重试...');
+          analysisAttempt++;
+        } catch (e: any) {
+          console.warn('[autoWrite] 阶段二异常:', e?.message);
+          analysisAttempt++;
         }
       }
 
-      // 执行 writeActions 写文档
-      if (protocol?.writeActions?.length > 0) {
-        const writeStart = Date.now();
-        set(prev => ({ thinkingPhases: [...prev.thinkingPhases, { label: "写入文档中", reasoning: "" }] }));
-        await executeProtocol(get(), protocol);
-        console.log("[autoWrite] executeProtocol 完成");
-        set(prev => ({ thinkingPhases: prev.thinkingPhases.map((p, i) => i === prev.thinkingPhases.length - 1 ? { ...p, label: "写入文档", thinkingTime: Math.floor((Date.now() - writeStart) / 1000) } : p) }));
-      }
-
-      // ── 第二步：处理问题数量（不阻塞写入） ──
-      let finalReply = reply;
+      // ── 最终处理 ──
+      // ensureQuestionCount for validation/renumbering (no retry, just validate)
       let genState: QuestionGenState | null = null;
-      if (questionCount > 1) {
-        console.log('[autoWrite] 第二步: ensureQuestionCount...');
-        const phase3Start = Date.now();
-        const result = await ensureQuestionCount(reply, questionCount, snapshot,
+      if (questionCount > 1 && finalReply) {
+        const result = await ensureQuestionCount(finalReply, questionCount, snapshot,
           apiKey, get().apiEndpoint, get().model, get().messages, get().versions, get().activeVersionId,
-          get().files, get().activeFileId, protocol?.writeActions?.length > 0);
+          get().files, get().activeFileId, true);
         finalReply = result.finalReply;
         genState = result.genState;
         if (result.extraUsage) {
@@ -1853,20 +1992,16 @@ export const useStore = create<AppState>()(
             total: totalUsage.total + result.extraUsage.total,
           };
         }
-        // Phase 3 done — only add if ensureQuestionCount actually retried
-        if (genState && genState.attempt > 0) {
-          set(prev => ({ thinkingPhases: [...prev.thinkingPhases, { label: "二次提问", reasoning: "已补充", thinkingTime: Math.floor((Date.now() - phase3Start) / 1000) }] }));
-        }
-
       }
-      // Strip JSON and update message
+
+      // Update analysis message with final content
       const visibleText = finalReply.replace(/```json[\s\S]*?```/g, '').trim() || finalReply;
-      const newMsgs = get().messages.map(m => m.id === streamMsgId ? {
+      const newMsgs = get().messages.map(m => m.id === analysisMsgId ? {
         ...m,
         content: visibleText,
         raw: finalReply, protocol,
         usage: totalUsage.total > 0 ? totalUsage : undefined,
-        reasoning,
+        reasoning: get().messages.find(x => x.id === analysisMsgId)?.reasoning,
         questionGenMeta: genState ? {
           attempted: genState.attempt > 0,
           attemptCount: genState.attempt,
@@ -1877,10 +2012,8 @@ export const useStore = create<AppState>()(
         } : undefined,
       } : m);
       set({ messages: newMsgs, fileLoading: { ...get().fileLoading, [get().activeFileId]: false }, questionGen: genState });
-      // Delay thinking complete to let user see final phase
     } catch (e: any) {
       console.error('[autoWrite] sendMessage 异常:', e.message, e.stack);
-      // Store retry info so UI can show a retry bar on reload
       const lastUserMsg = [...get().messages].reverse().find(m => m.role === 'user');
       const retryText = lastUserMsg
         ? lastUserMsg.content.replace(/【inputType=(?:answer|change)】\n/, '').replace(/【请在你的回复末尾输出.*?】\n\n/, '')
