@@ -143,8 +143,8 @@
   padding: 0 8px;
   border: none;
   border-left: 2px solid transparent;
-  background: transparent;
-  color: var(--accent-solid);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
   font-size: 12px; font-weight: 600; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
@@ -157,8 +157,8 @@
   padding: 0 8px;
   border: none;
   border-left: 2px solid transparent;
-  background: transparent;
-  color: var(--accent-solid);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
   font-size: 12px; font-weight: 600; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;

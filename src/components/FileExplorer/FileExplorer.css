@@ -69,7 +69,7 @@
 
 .file-item {
   display: flex; align-items: center; gap: 10px;
-  padding: 12px 14px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--line-light);
   color: var(--text-secondary);
   cursor: default; user-select: none;
@@ -104,12 +104,12 @@
   font-size: 12px; font-weight: 600; line-height: 1;
   cursor: pointer; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  background: transparent;
+  background: var(--bg-panel);
   transition: background 0.15s, border-color 0.15s;
 }
-.file-action-btn.reset { color: var(--accent-solid); }
+.file-action-btn.reset { color: var(--text-secondary); }
 .file-action-btn.reset:hover { background: var(--accent-soft); border-left-color: var(--accent-solid); }
-.file-action-btn.delete { color: var(--accent-solid); }
+.file-action-btn.delete { color: var(--text-secondary); }
 .file-action-btn.delete:hover { background: var(--accent-soft); border-left-color: var(--accent-solid); }
 .file-action-btn.confirming {
   background: var(--accent-15);

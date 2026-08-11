@@ -86,7 +86,7 @@
   border: none;
   border-left: 2px solid transparent;
   padding: 6px 16px;
-  background: transparent;
+  background: var(--bg-panel);
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 600;
@@ -104,7 +104,7 @@
   border: none;
   border-left: 2px solid transparent;
   padding: 6px 14px;
-  background: transparent;
+  background: var(--bg-panel);
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 600;

@@ -451,11 +451,9 @@ const ANALYSIS_SYSTEM_PROMPT = `你是 alittlebit 的分析师。你的唯一任
 问题数量由运行时指令指定。`;
 
 const B_TEMPLATE_FILES = new Set([
-  'question_log.md',
-  'change_log.md',
-  'question_log.md',
-  'confirmation_log.md',
-  'confirmation_log.md',
+  'questions.md',
+  'changes.md',
+  'confirms.md',
 ]);
 
 function buildFileTree(data: any[], prevFiles?: FileItem[]): FileItem[] {
@@ -1631,7 +1629,7 @@ export const useStore = create<AppState>()(
     { id: 'v0', title: 'v0', locked: false, active: true },
   ] as any,
   messages: [
-    { id: 'm1', role: 'assistant' as const, content: '欢迎使用 AI 项目计划生成系统。请输入你的想法或目标，我来帮你逐步收敛为可执行的计划。', timestamp: '10:00' },
+    { id: 'm1', role: 'assistant' as const, content: '请输入你的想法或目标\n我来帮你逐步收敛为可执行的计划。', timestamp: '10:00' },
   ],
   activeVersionId: 'v0',
   activeFileId: 'f1',
@@ -1743,7 +1741,7 @@ export const useStore = create<AppState>()(
     // Save current messages to old file's slot
     const updatedFileMessages = { ...fileMessages, [oldId]: oldMsgs };
     // Restore messages for new file (or empty array)
-    const newMessages = updatedFileMessages[id] || [{ id: 'm1', role: 'assistant' as const, content: '欢迎使用 AI 项目计划生成系统。请输入你的想法或目标，我来帮你逐步收敛为可执行的计划。', timestamp: '10:00' }];
+    const newMessages = updatedFileMessages[id] || [{ id: 'm1', role: 'assistant' as const, content: '请输入你的想法或目标\n我来帮你逐步收敛为可执行的计划。', timestamp: '10:00' }];
     console.log('[selectFile] restored messages len=', newMessages.length);
     set({ activeFileId: id, fileMessages: updatedFileMessages, messages: newMessages });
     if (file.type === 'folder') return;
@@ -2314,7 +2312,7 @@ export const useStore = create<AppState>()(
   },
 
   clearMessages: () => {
-    const welcome = [{ id: 'm1', role: 'assistant' as const, content: '欢迎使用 AI 项目计划生成系统。请输入你的想法或目标，我来帮你逐步收敛为可执行的计划。', timestamp: '10:00' }];
+    const welcome = [{ id: 'm1', role: 'assistant' as const, content: '请输入你的想法或目标\n我来帮你逐步收敛为可执行的计划。', timestamp: '10:00' }];
     const { activeFileId, fileMessages } = get();
     set({
       messages: welcome,
@@ -2340,7 +2338,7 @@ export const useStore = create<AppState>()(
 
     let content: string;
     if (cat === 'b') {
-      const name = file.name.replace(/\.md$/, ')')
+      const name = file.name.replace(/\.md$/, '')
       const title = name.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
       content = '# ' + title + String.fromCharCode(10, 10);
     } else {

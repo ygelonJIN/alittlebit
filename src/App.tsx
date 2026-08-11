@@ -40,8 +40,8 @@ export default function App() {
   const [verCount, setVerCount] = useState(versions.length);
   const verRef = useRef<HTMLDivElement>(null);
 
-  const [leftW, setLeftW] = useState(268);
-  const [rightW, setRightW] = useState(460);
+  const [leftW, setLeftW] = useState(240);
+  const [rightW, setRightW] = useState(499);
   const [dragging, setDragging] = useState<null | 'l' | 'r'>(null);
   const layoutRef = useRef<HTMLDivElement>(null);
   const SPLITTER_W = 6;

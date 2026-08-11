@@ -286,6 +286,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
     setUploadedFiles(prev => prev.filter((_, i) => i !== index));
   };
   const chatBodyRef = useRef<HTMLDivElement>(null);
+  const isWelcomeOnly = messages.length === 1 && messages[0].id === 'm1' && messages[0].role === 'assistant' && !messages[0].content.includes('【inputType');
   const userScrolledRef = useRef(false);
   const reasoningBodyRef = useRef<HTMLPreElement>(null);
   const reasoningScrolledRef = useRef(false);
@@ -550,8 +551,14 @@ export default function ChatPanel({ isReadOnly }: Props) {
   return (
     <div className="chat">
       <div className="chat-body" ref={chatBodyRef}>
-        {messages.map((m, mi) => {
-          const isLastUser = m.role === "user" && (mi === messages.length - 1 || messages[mi + 1]?.role !== "user");
+        {isWelcomeOnly && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', textAlign: 'center', color: 'var(--text)', fontSize: 15, lineHeight: 2 }}>
+            <div>请输入你的想法或目标<br />我来帮你逐步收敛为可执行的计划。</div>
+          </div>
+        )}
+        {!isWelcomeOnly && messages.filter((m: any) => !(m.id === 'm1' && m.content.includes('请输入你的想法或目标'))).map((m: any, mi: number, arr: any[]) => {
+          const filtered = arr;
+          const isLastUser = m.role === "user" && (mi === filtered.length - 1 || filtered[mi + 1]?.role !== "user");
           const parts = [];
           if (m.role === "user") {
             const displayContent = m.content
@@ -627,9 +634,9 @@ export default function ChatPanel({ isReadOnly }: Props) {
             </div>
           );
         })}
-        <div className="new-session-bar">
-          <button className="btn new-session-btn" onClick={() => { useStore.getState().clearMessages(); }}>新开 Session</button>
-        </div>
+      </div>
+      <div className="new-session-bar">
+        <button className="btn new-session-btn" onClick={() => { useStore.getState().clearMessages(); }}>新开 Session</button>
       </div>
       {lockAdvance && (
         <div className="lock-advance-bar">
