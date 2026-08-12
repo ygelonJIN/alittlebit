@@ -19,6 +19,7 @@
 .editor-view { display: grid; grid-template-columns: auto 1fr; height: 100%; background: var(--bg-overlay); }
 
 .editor-mode-bar {
+  border: 1px solid var(--line);
   position: absolute;
   top: 8px;
   right: 16px;
@@ -30,6 +31,7 @@
 .editor-mode-btn {
   border: none;
   border-left: 2px solid transparent;
+  border-right: 1px solid var(--line);
   padding: 8px 20px;
   background: var(--bg-panel);
   color: var(--text-secondary);
@@ -38,13 +40,16 @@
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
+.editor-mode-btn:last-child {
+  border-right: none;
+}
 .editor-mode-btn:hover {
-  background: var(--accent-soft);
+  background: var(--accent-1);
   color: var(--text);
   border-left-color: var(--accent-solid);
 }
 .editor-mode-btn.active {
-  background: var(--accent-soft);
+  background: var(--accent-1);
   color: var(--text);
   border-left-color: var(--accent-solid);
 }
@@ -107,9 +112,9 @@
   height: 100%;
   transition: background 0.15s, border-color 0.15s;
 }
-.ver-tab-inline:hover { background: var(--accent-06); }
+.ver-tab-inline:hover { background: var(--accent-3); }
 .ver-tab-inline.active {
-  background: var(--accent-soft);
+  background: var(--accent-1);
   border-top-color: var(--accent-solid);
   border-right: 1px solid var(--line-light);
   color: var(--editor-text);
@@ -128,7 +133,7 @@
   min-width: 60px;
 }
 
-.ver-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; flex-shrink: 0; }
+.ver-actions { display: flex; align-items: center; gap: 0; margin-left: auto; flex-shrink: 0; }
 
 .ver-lock-pill {
   width: 10px; height: 10px;
@@ -141,8 +146,7 @@
 .ver-next-btn {
   height: 24px;
   padding: 0 8px;
-  border: none;
-  border-left: 2px solid transparent;
+  border: 1px solid var(--line);
   background: var(--bg-panel);
   color: var(--text-secondary);
   font-size: 12px; font-weight: 600; cursor: pointer;
@@ -150,13 +154,12 @@
   flex-shrink: 0;
   transition: background 0.15s, border-color 0.15s;
 }
-.ver-next-btn:hover { background: var(--accent-soft); border-left-color: var(--accent-solid); }
+.ver-next-btn:hover { background: var(--accent-0); border-left-color: var(--accent-solid); }
 
 .ver-delete-btn {
   height: 24px;
   padding: 0 8px;
-  border: none;
-  border-left: 2px solid transparent;
+  border: 1px solid var(--line);
   background: var(--bg-panel);
   color: var(--text-secondary);
   font-size: 12px; font-weight: 600; cursor: pointer;
@@ -164,7 +167,7 @@
   flex-shrink: 0;
   transition: background 0.15s, border-color 0.15s;
 }
-.ver-delete-btn:hover { background: var(--accent-soft); border-left-color: var(--accent-solid); }
+.ver-delete-btn:hover { background: var(--accent-0); border-left-color: var(--accent-solid); }
 
 .ver-tab-rename {
   background: transparent; border: 1px solid var(--accent-solid);

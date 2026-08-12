@@ -40,7 +40,7 @@ export default function App() {
   const [verCount, setVerCount] = useState(versions.length);
   const verRef = useRef<HTMLDivElement>(null);
 
-  const [leftW, setLeftW] = useState(240);
+  const [leftW, setLeftW] = useState(220);
   const [rightW, setRightW] = useState(499);
   const [dragging, setDragging] = useState<null | 'l' | 'r'>(null);
   const layoutRef = useRef<HTMLDivElement>(null);
@@ -69,7 +69,7 @@ export default function App() {
       const rect = layoutRef.current.getBoundingClientRect();
       const total = rect.width - (isGuideView ? SPLITTER_W : SPLITTER_W * 2);
       const x = e.clientX - rect.left;
-      if (dragging === 'l') setLeftW(Math.max(220, Math.min(x, total - (isGuideView ? 0 : rightW) - 420)));
+      if (dragging === 'l') setLeftW(Math.max(210, Math.min(x, total - (isGuideView ? 0 : rightW) - 420)));
       else if (!isGuideView) setRightW(Math.max(360, total - Math.max(leftW + SPLITTER_W + 420, x)));
     };
     const onUp = () => { setDragging(null); document.body.style.cursor = ''; document.body.style.userSelect = ''; };
@@ -122,8 +122,8 @@ export default function App() {
               )}
             </div>
             <button className="titlebar-settings" onClick={() => setShowSettings(true)}>设置</button>
-            <span className={`titlebar-status ${isLoading ? 'thinking' : apiKey ? 'ready' : 'no-key'}`}>{isLoading ? 'Thinking...' : apiKey ? 'Ready' : 'No API Key'}</span>
           </div>
+          <span className={`titlebar-status ${isLoading ? 'thinking' : apiKey ? 'ready' : 'no-key'}`}>{isLoading ? 'Thinking...' : apiKey ? 'Ready' : 'No API Key'}</span>
         </div>
         <div className="layout">
           <div className="ver-bar-row">

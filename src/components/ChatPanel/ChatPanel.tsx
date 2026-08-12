@@ -321,34 +321,21 @@ export default function ChatPanel({ isReadOnly }: Props) {
     });
   }, [expandedThinking]);
 
-  // Auto-collapse when reasoning stops updating (per-phase 2s debounce)
-  // Skipped when label contains "中" (phase in progress, e.g. "写入文档中", "分析提问中")
-  const phaseTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
-  const lastPhaseReasoningRef = useRef<Map<number, string>>(new Map());
+  // Auto-collapse completed phases immediately (no debounce)
+  // A phase is "complete" when it has thinkingTime set by store.ts
   useEffect(() => {
-    // Don't collapse phases that are still in progress (label contains "中")
-    const hasActivePhase = thinkingPhases.some(p => p.label.includes('中'));
-    if (hasActivePhase) return;
     thinkingPhases.forEach((phase, idx) => {
-      if (!phase.reasoning) return;
-      const prev = lastPhaseReasoningRef.current.get(idx);
-      if (phase.reasoning !== prev) {
-        lastPhaseReasoningRef.current.set(idx, phase.reasoning);
-        const existing = phaseTimersRef.current.get(idx);
-        if (existing) clearTimeout(existing);
-        phaseTimersRef.current.set(idx, setTimeout(() => {
-          setExpandedThinking(prev => {
-            const n = new Set(prev);
-            n.delete("thinking-" + idx);
-            return n;
-          });
-          phaseTimersRef.current.delete(idx);
-        }, 2000));
+      if (phase.thinkingTime !== undefined) {
+        setExpandedThinking(prev => {
+          const key = "thinking-" + idx;
+          if (!prev.has(key)) return prev;
+          const n = new Set(prev);
+          n.delete(key);
+          return n;
+        });
       }
     });
   }, [thinkingPhases]);
-  // Cleanup timers only on unmount
-  useEffect(() => () => { phaseTimersRef.current.forEach(t => clearTimeout(t)); }, []);
 
   // Auto-scroll reasoning block during streaming (respects manual scroll within reasoning)
   useEffect(() => {
@@ -635,38 +622,40 @@ export default function ChatPanel({ isReadOnly }: Props) {
           );
         })}
       </div>
-      <div className="new-session-bar">
-        <button className="btn new-session-btn" onClick={() => { useStore.getState().clearMessages(); }}>新开 Session</button>
-      </div>
-      {lockAdvance && (
-        <div className="lock-advance-bar">
-          <span className="lock-advance-text">AI 建议锁定当前文档并进入下一阶段。是否继续？</span>
-          <div className="lock-advance-actions">
-            <button className="btn lock-advance-confirm" onClick={confirmLockAdvance}>确认</button>
-            <button className="btn lock-advance-cancel" onClick={cancelLockAdvance}>取消</button>
-          </div>
+      <div className="floating-bars">
+        <div className="new-session-bar">
+          <button className="btn new-session-btn" onClick={() => { useStore.getState().clearMessages(); }}>新开 Session</button>
         </div>
-      )}
-      {retryPrompt && (
-        <div className="lock-advance-bar">
-          <span className="lock-advance-text">上一次请求失败，未收到回复。是否重试？</span>
-          <div className="lock-advance-actions">
-            <button className="btn lock-advance-confirm" onClick={retrySend}>重试</button>
-            <button className="btn lock-advance-cancel" onClick={clearRetryPrompt}>取消</button>
-          </div>
-        </div>
-      )}
-      {uploadedFiles.length > 0 && (
-        <div className="uploaded-files-bar">
-          {uploadedFiles.map((file, index) => (
-            <div key={index} className="uploaded-file-item">
-              <span className="file-name">{file.name}</span>
-              <span className="file-size">({(file.size / 1024).toFixed(1)} KB)</span>
-              <button className="remove-file" onClick={() => removeFile(index)}>×</button>
+        {lockAdvance && (
+          <div className="lock-advance-bar">
+            <span className="lock-advance-text">AI 建议锁定当前文档并进入下一阶段。是否继续？</span>
+            <div className="lock-advance-actions">
+              <button className="btn lock-advance-confirm" onClick={confirmLockAdvance}>确认</button>
+              <button className="btn lock-advance-cancel" onClick={cancelLockAdvance}>取消</button>
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        )}
+        {retryPrompt && (
+          <div className="lock-advance-bar">
+            <span className="lock-advance-text">上一次请求失败，未收到回复。是否重试？</span>
+            <div className="lock-advance-actions">
+              <button className="btn lock-advance-confirm" onClick={retrySend}>重试</button>
+              <button className="btn lock-advance-cancel" onClick={clearRetryPrompt}>取消</button>
+            </div>
+          </div>
+        )}
+        {uploadedFiles.length > 0 && (
+          <div className="uploaded-files-bar">
+            {uploadedFiles.map((file, index) => (
+              <div key={index} className="uploaded-file-item">
+                <span className="file-name">{file.name}</span>
+                <span className="file-size">({(file.size / 1024).toFixed(1)} KB)</span>
+                <button className="remove-file" onClick={() => removeFile(index)}>×</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
       {(!hasQuestions || activeMode !== null || (hasQuestions && activeMode === null)) && (
         <div className="composer" ref={composerRef}>
           <div className={`input${isReadOnly ? ' readonly' : ''}`}>

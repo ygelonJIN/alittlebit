@@ -22,11 +22,11 @@
 }
 
 .ver-tab:hover {
-  background: var(--accent-06);
+  background: var(--accent-3);
 }
 
 .ver-tab.active {
-  background: var(--accent-soft);
+  background: var(--accent-1);
   color: var(--text);
 }
 
@@ -65,7 +65,7 @@
 }
 
 .ver-tab-btn:hover {
-  background: var(--accent-06);
+  background: var(--accent-3);
   color: var(--text);
 }
 

@@ -18,27 +18,19 @@
   --accent-g: 58;
   --accent-b: 237;
   --accent-solid: rgb(var(--accent-r), var(--accent-g), var(--accent-b));
-  --accent-025: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.025);
-  --accent-06: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.06);
-  --accent-10: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.10);
-  --accent-12: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.12);
-  --accent-15: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.15);
-  --accent-20: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.20);
-  --accent-30: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.30);
-  --accent-55: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.55);
-  --accent: var(--accent-solid);
-  --accent-soft: var(--accent-12);
-  --accent-border: var(--accent-20);
-  --accent-hover: color-mix(in srgb, var(--accent-solid) 78%, white);
-  --accent-bright: color-mix(in srgb, var(--accent-solid) 65%, white);
+  --accent-0: #2f1a5f;
+  --accent-1: #241549;
+  --accent-2: #1a1030;
+  --accent-3: #150e28;
+  --accent-bright: #b18ee0;
   --chat-surface: rgba(255, 255, 255, 0.04);
   --chat-surface-strong: rgba(255, 255, 255, 0.08);
   --chat-user-bg: rgba(255, 255, 255, 0.08);
   --chat-user-border: rgba(165, 182, 206, 0.35);
   --chat-problem-bg: rgba(255, 255, 255, 0.08);
   --chat-card-bg: rgba(255, 255, 255, 0.06);
-  --chat-question-bg: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.10);
-  --chat-question-selected: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.16);
+  --chat-question-bg: var(--accent-3);
+  --chat-question-selected: var(--accent-2);
   --chat-quote-bg: rgba(255, 255, 255, 0.04);
   --chat-text: #edf4ff;
   --chat-text-strong: #ffffff;
@@ -76,18 +68,10 @@
   --accent-g: 58;
   --accent-b: 237;
   --accent-solid: rgb(var(--accent-r), var(--accent-g), var(--accent-b));
-  --accent-025: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.025);
-  --accent-06: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.06);
-  --accent-10: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.10);
-  --accent-12: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.12);
-  --accent-15: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.15);
-  --accent-20: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.20);
-  --accent-30: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.30);
-  --accent-55: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.55);
-  --accent: var(--accent-solid);
-  --accent-soft: var(--accent-12);
-  --accent-border: var(--accent-20);
-  --accent-hover: color-mix(in srgb, var(--accent-solid) 78%, white);
+  --accent-0: #cbb4f2;
+  --accent-1: #d8cfe8;
+  --accent-2: #e5dff0;
+  --accent-3: #ece8f5;
   --accent-bright: var(--accent-solid);
   --chat-surface: rgba(0, 0, 0, 0.04);
   --chat-surface-strong: rgba(0, 0, 0, 0.08);
@@ -95,8 +79,8 @@
   --chat-user-border: rgba(0, 0, 0, 0.15);
   --chat-problem-bg: rgba(0, 0, 0, 0.04);
   --chat-card-bg: rgba(0, 0, 0, 0.04);
-  --chat-question-bg: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.10);
-  --chat-question-selected: rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.16);
+  --chat-question-bg: var(--accent-3);
+  --chat-question-selected: var(--accent-2);
   --chat-quote-bg: rgba(0, 0, 0, 0.03);
   --chat-text: #1d1d1f;
   --chat-text-strong: #111111;
@@ -130,7 +114,7 @@ html, body, #root {
 }
 
 body {
-  background: radial-gradient(circle at 15% 10%, var(--accent-20), transparent 28%),
+  background: radial-gradient(circle at 15% 10%, var(--accent-2), transparent 28%),
               radial-gradient(circle at 88% 16%, rgba(34, 211, 238, 0.14), transparent 24%),
               linear-gradient(180deg, color-mix(in srgb, var(--bg) 92%, #000), var(--bg));
   color: var(--text);
