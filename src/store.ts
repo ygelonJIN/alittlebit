@@ -163,7 +163,7 @@ const SYSTEM_PROMPT = [
   '==================================================',
   '你的最终目标是把一个模糊项目想法，持续收敛为一条完整的软件工程文档链，并支持版本化管理。',
   'A 类核心产出文档包括：PRD / Rules / Features / Updates',
-  'B 类治理产出文档包括：question_log.md / confirmation_log.md / change_log.md',
+  'B 类治理产出文档包括：questions.md / confirms.md / changes.md',
   '你必须让 A 类文档和 B 类文档形成闭环。',
   '',
   '==================================================',
@@ -176,7 +176,7 @@ const SYSTEM_PROMPT = [
   '三、文档链顺序',
   '==================================================',
   '必须按以下顺序推进：PRD → Rules → Features（多个） → Change Management',
-  '版本治理文档应同步生成或更新：question_log / confirmation_log / change_log',
+  '版本治理文档应同步生成或更新：questions / confirms / changes',
   '你不得跳过前置文档直接生成后置文档。',
   '',
   '==================================================',
@@ -289,17 +289,17 @@ const SYSTEM_PROMPT = [
   '- 数据模型、字段定义、状态流转 → RFC + Rules',
   '- 复杂度评估 → RFC + Features',
   '- 风险、取舍、替代方案 → RFC + Implementation',
-  '- 实际开发过程、改动过程 → Implementation + change_log',
+  '- 实际开发过程、改动过程 → Implementation + changes',
   '- 自检结果、完成情况 → Implementation + Code Review',
   '- 代码问题、审查结论、风险项 → Code Review + RFC',
   '- 测试范围、测试类型、测试用例 → Testing Strategy + RFC',
   '- 异常场景、边界场景、回归范围 → Testing Strategy + RFC',
-  '- 需求变更、新增/修改/删除 → Change Management + change_log',
+  '- 需求变更、新增/修改/删除 → Change Management + changes',
   '- 版本切换、派生新版本、锁定 → B 类治理',
-  '- 问过什么、回答了什么 → question_log + confirmation_log',
-  '- 哪些内容已确认 → confirmation_log',
+  '- 问过什么、回答了什么 → questions + confirms',
+  '- 哪些内容已确认 → confirms',
   '- 当前版本状态、是否能继续 → latest_plan',
-  '- 差异、对比、变更摘要 → change_log',
+  '- 差异、对比、变更摘要 → changes',
   '- 文件是否结束、是否锁定 → 灯状态',
   '',
   '## 一句话多义时：当前激活文档 > 当前阶段文档 > 上游文档 > Rules',
@@ -1142,7 +1142,7 @@ async function appendToBFile(fileName: string, entry: string, verId: string) {
 async function appendResetMarkers(fileId: string, verId: string) {
   const now = new Date().toLocaleString('zh-CN');
   const marker = '## ' + now + String.fromCharCode(10) + '- 目标文件: ' + fileId + String.fromCharCode(10) + '- 动作: reset' + String.fromCharCode(10);
-  for (const logFile of ['change_log.md', 'question_log.md', 'confirmation_log.md']) {
+  for (const logFile of ['changes.md', 'questions.md', 'confirms.md']) {
     await appendToBFile(logFile, marker, verId);
   }
 }
@@ -1150,14 +1150,14 @@ async function appendResetMarkers(fileId: string, verId: string) {
 async function syncBAfterWrite(targetFile: string, content: string, questions: string[], confirmations: string[], verId: string) {
   const now = new Date().toLocaleString('zh-CN');
   const entry = '## ' + now + '\n- 目标文件: ' + targetFile + '\n- 内容: ' + content.slice(0, 80) + '\n';
-  await appendToBFile('change_log.md', entry, verId);
+  await appendToBFile('changes.md', entry, verId);
   if (questions.length > 0) {
     const qEntry = '## ' + now + '\n' + questions.map((q, i) => (i + 1) + '. ' + q).join('\n') + '\n';
-    await appendToBFile('question_log.md', qEntry, verId);
+    await appendToBFile('questions.md', qEntry, verId);
   }
   if (confirmations.length > 0) {
     const cEntry = '## ' + now + '\n' + confirmations.map((c, i) => (i + 1) + '. ' + c).join('\n') + '\n';
-    await appendToBFile('confirmation_log.md', cEntry, verId);
+    await appendToBFile('confirms.md', cEntry, verId);
   }
 }
 

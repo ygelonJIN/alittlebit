@@ -247,7 +247,7 @@ function filesPlugin(): Plugin {
               '## 文件指向',
               '- 主文件: b/version_summary.md',
               '- 差异文件: c/' + (prevVersion ? 'diff_' + prevVersion + '_to_' + versionId + '.md' : 'diff_v0_to_' + versionId + '.md'),
-              '- 日志文件: b/change_log.md',
+              '- 日志文件: b/changes.md',
               '- 锁定摘要: b/lock_summary.md',
               '- 归档位置: 尚未归档',
               '',
@@ -284,7 +284,7 @@ function filesPlugin(): Plugin {
               '- 是否影响主入口索引: 是 (已更新)',
               '',
               '## 同步结果',
-              '- 已更新文件: version_summary.md, change_log.md, question_log.md, confirmation_log.md, ' + (prevVersion ? 'diff_' + prevVersion + '_to_' + versionId + '.md' : 'diff_v0_to_' + versionId + '.md') + ', current/latest_plan.md',
+              '- 已更新文件: version_summary.md, changes.md, questions.md, confirms.md, ' + (prevVersion ? 'diff_' + prevVersion + '_to_' + versionId + '.md' : 'diff_v0_to_' + versionId + '.md') + ', current/latest_plan.md',
               '- 未完成项: 无',
               '',
               '---',
@@ -305,14 +305,14 @@ function filesPlugin(): Plugin {
             fs.writeFileSync(path.join(bDir, 'version_summary.md'), summary);
             files.push('b/version_summary.md');
 
-            fs.writeFileSync(path.join(bDir, 'change_log.md'), changeLog);
-            files.push('b/change_log.md');
+            fs.writeFileSync(path.join(bDir, 'changes.md'), changeLog);
+            files.push('b/changes.md');
 
-            fs.writeFileSync(path.join(bDir, 'question_log.md'), qlogText);
-            files.push('b/question_log.md');
+            fs.writeFileSync(path.join(bDir, 'questions.md'), qlogText);
+            files.push('b/questions.md');
 
-            fs.writeFileSync(path.join(bDir, 'confirmation_log.md'), clogText);
-            files.push('b/confirmation_log.md');
+            fs.writeFileSync(path.join(bDir, 'confirms.md'), clogText);
+            files.push('b/confirms.md');
 
             fs.writeFileSync(path.join(bDir, 'lock_summary.md'), freezeStub);
             files.push('b/lock_summary.md');
@@ -327,7 +327,7 @@ function filesPlugin(): Plugin {
               '- 来源版本：' + (prevVersion ?? 'v0'),
               '- 目标版本：' + versionId,
               '- 变更对象：b/ 目录下全部治理文档 + current/latest_plan.md + diffs/',
-              '- 关联文档：b/version_summary / b/change_log / b/question_log / b/confirmation_log / b/lock_summary',
+              '- 关联文档：b/version_summary / b/changes / b/questions / b/confirms / b/lock_summary',
               '- 生成时间：' + now,
               '- 状态：confirmed',
               '',
@@ -347,9 +347,9 @@ function filesPlugin(): Plugin {
               '- 变更前：无',
               '- 变更后：新建版本目录 versions/' + versionId + '/b/',
               '- 新建文件：version_summary.md',
-              '- 新建文件：change_log.md',
-              '- 新建文件：question_log.md',
-              '- 新建文件：confirmation_log.md',
+              '- 新建文件：changes.md',
+              '- 新建文件：questions.md',
+              '- 新建文件：confirms.md',
               '- 新建文件：lock_summary.md',
               '',
               '### 3.2 修改',
@@ -375,9 +375,9 @@ function filesPlugin(): Plugin {
               '- 版本摘要已生成至 b/version_summary.md，指向当前版本',
               '',
               '### 5.3 对日志的影响',
-              '- 变更日志已记录至 b/change_log.md',
-              '- 问答日志已记录至 b/question_log.md',
-              '- 确认日志已记录至 b/confirmation_log.md',
+              '- 变更日志已记录至 b/changes.md',
+              '- 问答日志已记录至 b/questions.md',
+              '- 确认日志已记录至 b/confirms.md',
               '',
               '### 5.4 对索引的影响',
               '- 主入口索引 current/latest_plan.md 已更新为当前版本',
@@ -429,9 +429,9 @@ function filesPlugin(): Plugin {
             files.push('current/latest_plan.md');
 
             // logs
-            fs.writeFileSync(path.join(logsDir, 'question_log.md'), qlogText);
-            fs.writeFileSync(path.join(logsDir, 'change_log.md'), changeLog);
-            fs.writeFileSync(path.join(logsDir, 'confirmation_log.md'), clogText);
+            fs.writeFileSync(path.join(logsDir, 'questions.md'), qlogText);
+            fs.writeFileSync(path.join(logsDir, 'changes.md'), changeLog);
+            fs.writeFileSync(path.join(logsDir, 'confirms.md'), clogText);
 
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ ok: true, dir: 'versions/' + versionId + '/', files }));
@@ -470,7 +470,7 @@ function filesPlugin(): Plugin {
             }
 
             // action === 'lock': check prerequisites
-            const required = ['version_summary.md', 'change_log.md', 'question_log.md', 'confirmation_log.md'];
+            const required = ['version_summary.md', 'changes.md', 'questions.md', 'confirms.md'];
             const missing = required.filter((f) => !fs.existsSync(path.join(bDir, f)));
             if (missing.length > 0) {
               res.statusCode = 400;

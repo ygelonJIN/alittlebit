@@ -20,9 +20,9 @@ export const files: FileItem[] = [
   {
     id: 'group:b', name: 'B 治理文档', type: 'folder', category: 'b',
     children: [
-      { id: 'f3', name: 'change_log.md', type: 'md', category: 'b' },
-      { id: 'f4', name: 'question_log.md', type: 'md', category: 'b' },
-      { id: 'f5', name: 'confirmation_log.md', type: 'md', category: 'b' },
+      { id: 'f3', name: 'changes.md', type: 'md', category: 'b' },
+      { id: 'f4', name: 'questions.md', type: 'md', category: 'b' },
+      { id: 'f5', name: 'confirms.md', type: 'md', category: 'b' },
       { id: 'f7', name: 'lock_summary.md', type: 'md', category: 'b' },
     ],
   },

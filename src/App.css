@@ -164,3 +164,4 @@
 .qg-filling  { color: #febc2e; border-left-color: #febc2e; background: rgba(254,188,46,0.08); }
 .qg-retrying { color: var(--accent-solid); border-left-color: var(--accent-solid); background: var(--accent-2); }
 .qg-failed   { color: #ff4d4f; border-left-color: #ff4d4f; background: rgba(255,77,79,0.08); }
+

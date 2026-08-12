@@ -1,7 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { useStore } from '../../store';
+import ParticleText from '../ParticleText/ParticleText';
+import ShinyText from '../ShinyText/ShinyText';
 import './ChatPanel.css';
 
+import PrismaticBurst from '../PrismaticBurst/PrismaticBurst';
 interface Props {
   isReadOnly: boolean;
 }
@@ -227,6 +230,8 @@ function QuestionCard({ questions, onSelectionChange, answersRef, customRef, bat
 
 export default function ChatPanel({ isReadOnly }: Props) {
   const messages = useStore((s) => s.messages);
+  const theme = useStore((s) => s.theme);
+  const accent = useStore((s) => s.accent);
   const streamingMsgId = useStore((s) => s.streamingMsgId);
   const thinkingPhases = useStore((s) => s.thinkingPhases);
   const streamingMsg = streamingMsgId ? messages.find(m => m.id === streamingMsgId) : null;
@@ -257,6 +262,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const selectedAnswers = useRef<Record<string, Record<number, { label: string; custom: string }>>>({});
   const customRef = useRef<Record<string, Record<number, string>>>({});
   const [inputExpanded, setInputExpanded] = useState(false);
+  const [sessionKey, setSessionKey] = useState(0);
 
   const [thinkingTime, setThinkingTime] = useState(0);
   const thinkingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -536,11 +542,41 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const hasQuestions = lastQuestionCount > 0;
 
   return (
-    <div className="chat">
+    <div className="chat" style={{ position: 'relative' }}>
+      {isLoading && (
+        <PrismaticBurst
+          intensity={theme === 'dark' ? 3 : 8}
+          speed={2}
+          animationType="rotate3d"
+          colors={theme === 'dark' ? ['#000000', accent, accent] : ['#333333', accent, accent]}
+          distort={0}
+          rayCount={0}
+          className="chat-prismatic-burst"
+        />
+      )}
       <div className="chat-body" ref={chatBodyRef}>
         {isWelcomeOnly && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', textAlign: 'center', color: 'var(--text)', fontSize: 15, lineHeight: 2 }}>
-            <div>请输入你的想法或目标<br />我来帮你逐步收敛为可执行的计划。</div>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', zIndex: 1 }}>
+            <ParticleText
+              key={sessionKey}
+              text="请输入你的想法或目标"
+              particleSize={1.5}
+              density={3}
+              color={theme === 'dark' ? '#ffffff' : '#000000'}
+              highlightColor={accent}
+              scatter={500}
+              gatherDuration={1000}
+              stagger={300}
+              pointerRepel={30}
+              repelRadius={220}
+              idleDrift={1}
+              trigger="mount"
+              fontSize="clamp(1.8rem, 7vw, 4.5rem)"
+              fontWeight={300}
+              fontFamily="inherit"
+              glow
+              style={{ width: '100%', height: '100%' }}
+            />
           </div>
         )}
         {!isWelcomeOnly && messages.filter((m: any) => !(m.id === 'm1' && m.content.includes('请输入你的想法或目标'))).map((m: any, mi: number, arr: any[]) => {
@@ -575,7 +611,21 @@ export default function ChatPanel({ isReadOnly }: Props) {
                     return (
                       <div key={phaseKey} className="loading-msg">
                         <div className="thinking-toggle" onClick={() => setExpandedThinking(prev => { const n = new Set(prev); n.has(phaseKey) ? n.delete(phaseKey) : n.add(phaseKey); return n; })}>
-                          <em>{phase.label}{phase.thinkingTime !== undefined ? " " + phase.thinkingTime + "s" : phase.startTime ? " " + Math.floor((Date.now() - phase.startTime) / 1000) + "s" : " " + thinkingTime + "s"}</em>{phase.reasoning ? <span className="thinking-arrow">{expandedThinking.has(phaseKey) ? "▲" : "▼"}</span> : null}
+                          <em>
+                            {phase.label.includes('中') ? (
+                              <ShinyText
+                                text={phase.label + (phase.thinkingTime !== undefined ? " " + phase.thinkingTime + "s" : phase.startTime ? " " + Math.floor((Date.now() - phase.startTime) / 1000) + "s" : " " + thinkingTime + "s")}
+                                speed={2}
+                                delay={0}
+                                color={theme === 'dark' ? '#ffffff' : '#000000'}
+                                shineColor={accent}
+                                spread={60}
+                                direction="left"
+                              />
+                            ) : (
+                              <>{phase.label}{phase.thinkingTime !== undefined ? " " + phase.thinkingTime + "s" : phase.startTime ? " " + Math.floor((Date.now() - phase.startTime) / 1000) + "s" : " " + thinkingTime + "s"}</>
+                            )}
+                          </em>{phase.reasoning ? <span className="thinking-arrow">{expandedThinking.has(phaseKey) ? "▲" : "▼"}</span> : null}
                         </div>
                         {expandedThinking.has(phaseKey) && phase.reasoning && (
                           <pre className="reasoning-block" ref={pi === thinkingPhases.length - 1 ? reasoningBodyRef : undefined} onScroll={(e) => {
@@ -624,7 +674,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
       </div>
       <div className="floating-bars">
         <div className="new-session-bar">
-          <button className="btn new-session-btn" onClick={() => { useStore.getState().clearMessages(); }}>新开 Session</button>
+          <button className="btn new-session-btn" onClick={() => { useStore.getState().clearMessages(); setSessionKey(k => k + 1); }}>新开 Session</button>
         </div>
         {lockAdvance && (
           <div className="lock-advance-bar">
