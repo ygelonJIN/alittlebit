@@ -80,6 +80,7 @@ export interface AppState {
   questionGen: QuestionGenState | null;
   streamingMsgId: string | null;
   thinkingPhases: Array<{ label: string; reasoning: string; thinkingTime?: number; startTime?: number }>;
+  abortController: AbortController | null;
 }
 
 // ── Heading node (for document section matching) ──
@@ -1302,7 +1303,7 @@ function validateQuestionBlock(block: ParsedQuestionBlock, targetCount: number):
 
 interface TokenUsage { prompt: number; completion: number; total: number; }
 
-async function callAI(apiKey: string, endpoint: string, model: string, msgs: ChatMessage[], versions: any[], activeId: string, questionCount: number, files: FileItem[], activeFileId: string, snapshot: string, retryContext?: string, onChunk?: (reasoning: string, content: string) => void, systemPrompt?: string): Promise<{ content: string; reasoning?: string; usage: TokenUsage | null }> {
+async function callAI(apiKey: string, endpoint: string, model: string, msgs: ChatMessage[], versions: any[], activeId: string, questionCount: number, files: FileItem[], activeFileId: string, snapshot: string, retryContext?: string, onChunk?: (reasoning: string, content: string) => void, systemPrompt?: string, externalController?: AbortController): Promise<{ content: string; reasoning?: string; usage: TokenUsage | null }> {
   let runtimeCtx = buildRuntimeContext(questionCount, versions, activeId, files, activeFileId, snapshot);
   if (retryContext) runtimeCtx = retryContext + '\n\n' + runtimeCtx;
 
@@ -1314,7 +1315,7 @@ async function callAI(apiKey: string, endpoint: string, model: string, msgs: Cha
     ...(lastUser ? [lastUser] : []),
   ];
   console.log('[callAI] msgs=' + msgList.length + ' | ' + msgList.map(m => m.role[0] + ':' + m.content.length).join(' '));
-  const controller = new AbortController();
+  const controller = externalController || new AbortController();
   const timer = setTimeout(() => controller.abort(), 60000);
   try {
     const res = await fetch(endpoint, {
@@ -1654,6 +1655,7 @@ export const useStore = create<AppState>()(
   questionGen: null,
   streamingMsgId: null,
   thinkingPhases: [],
+  abortController: null,
 
   setTheme: (theme) => {
     applyThemeMode(theme);
@@ -1775,6 +1777,13 @@ export const useStore = create<AppState>()(
     const text = inputText.trim();
     if (!text || isReadOnly || isLoading) return;
 
+    // Create abort controller and save to store
+    const controller = new AbortController();
+    set({ abortController: controller });
+
+    // Helper to check if this send was aborted
+    const isAborted = () => get().abortController !== controller;
+
     // Block if current file is locked green
     const activeFile = (() => {
       for (const g of files) {
@@ -1855,11 +1864,15 @@ export const useStore = create<AppState>()(
             undefined,
             (accR: string, accC: string) => {
               const msgs = get().messages.map(m => m.id === streamMsgId ? { ...m, reasoning: accR } : m);
-              const phases = get().thinkingPhases.map((p, i) => i === get().thinkingPhases.length - 1 ? { ...p, reasoning: accR } : p);
-              set({ messages: msgs, thinkingPhases: phases });
-              window.dispatchEvent(new Event('alittlebit-scroll'));
+              // Only update if streamMsg still exists (user might have cleared messages)
+              if (msgs.some(m => m.id === streamMsgId)) {
+                const phases = get().thinkingPhases.map((p, i) => i === get().thinkingPhases.length - 1 ? { ...p, reasoning: accR } : p);
+                set({ messages: msgs, thinkingPhases: phases });
+                window.dispatchEvent(new Event('alittlebit-scroll'));
+              }
             },
-            FILL_SYSTEM_PROMPT
+            FILL_SYSTEM_PROMPT,
+            controller
           );
           console.log('[DEBUG-Phase1] callAI 返回, reply长度:', writeReply?.length, 'reasoning长度:', writeReasoning?.length);
           console.log('[DEBUG-Phase1] reply前200字:', writeReply?.slice(0, 200));
@@ -1904,6 +1917,7 @@ export const useStore = create<AppState>()(
           console.warn('[DEBUG-Phase1] ❌ writeActions 为空, writeAttempt递增为', writeAttempt + 1);
           writeAttempt++;
         } catch (e: any) {
+          if (isAborted()) return;
           console.error('[DEBUG-Phase1] ❌ 阶段一异常:', e?.message, e?.stack);
           writeAttempt++;
         }
@@ -1913,6 +1927,7 @@ export const useStore = create<AppState>()(
       }
 
       // ═══ 阶段二：分析提问（循环直到成功）═══
+      if (isAborted()) return;
       const analysisMsgId = 'm' + (msgCounter++);
       const analysisMsg: ChatMessage = { id: analysisMsgId, role: 'assistant', content: '', timestamp: now(), reasoning: '' };
       const phase2Start = Date.now();
@@ -1944,11 +1959,15 @@ export const useStore = create<AppState>()(
             (accR: string, accC: string) => {
               const visible = accC.replace(/```json[\s\S]*?```/g, '').replace(/```json[\s\S]*$/g, '').trim();
               const msgs = get().messages.map(m => m.id === analysisMsgId ? { ...m, reasoning: accR, content: visible || accC } : m);
-              const phases = get().thinkingPhases.map((p, i) => i === get().thinkingPhases.length - 1 ? { ...p, reasoning: accR } : p);
-              set({ messages: msgs, thinkingPhases: phases });
-              window.dispatchEvent(new Event('alittlebit-scroll'));
+              // Only update if analysisMsg still exists (user might have cleared messages)
+              if (msgs.some(m => m.id === analysisMsgId)) {
+                const phases = get().thinkingPhases.map((p, i) => i === get().thinkingPhases.length - 1 ? { ...p, reasoning: accR } : p);
+                set({ messages: msgs, thinkingPhases: phases });
+                window.dispatchEvent(new Event('alittlebit-scroll'));
+              }
             },
-            ANALYSIS_SYSTEM_PROMPT
+            ANALYSIS_SYSTEM_PROMPT,
+            controller
           );
           if (analysisUsage) {
             totalUsage = { prompt: totalUsage.prompt + analysisUsage.prompt, completion: totalUsage.completion + analysisUsage.completion, total: totalUsage.total + analysisUsage.total };
@@ -1993,6 +2012,7 @@ export const useStore = create<AppState>()(
       }
 
       // Update analysis message with final content
+      if (isAborted()) return;
       const visibleText = finalReply.replace(/```json[\s\S]*?```/g, '').trim() || finalReply;
       const newMsgs = get().messages.map(m => m.id === analysisMsgId ? {
         ...m,
@@ -2011,6 +2031,11 @@ export const useStore = create<AppState>()(
       } : m);
       set({ messages: newMsgs, fileLoading: { ...get().fileLoading, [get().activeFileId]: false }, questionGen: genState });
     } catch (e: any) {
+      // Ignore abort errors - user initiated new session
+      if (e.name === 'AbortError') {
+        console.log('[sendMessage] Request aborted by user');
+        return;
+      }
       console.error('[autoWrite] sendMessage 异常:', e.message, e.stack);
       const lastUserMsg = [...get().messages].reverse().find(m => m.role === 'user');
       const retryText = lastUserMsg
@@ -2312,6 +2337,13 @@ export const useStore = create<AppState>()(
   },
 
   clearMessages: () => {
+    // Abort any ongoing AI request
+    const { abortController } = get();
+    if (abortController) {
+      abortController.abort();
+      set({ abortController: null });
+    }
+    
     const welcome = [{ id: 'm1', role: 'assistant' as const, content: '请输入你的想法或目标\n我来帮你逐步收敛为可执行的计划。', timestamp: '10:00' }];
     const { activeFileId, fileMessages } = get();
     set({
@@ -2320,6 +2352,9 @@ export const useStore = create<AppState>()(
       retryPrompt: null,
       lockAdvance: null,
       inputText: '',
+      streamingMsgId: null,
+      thinkingPhases: [],
+      fileLoading: {},
     });
   },
 

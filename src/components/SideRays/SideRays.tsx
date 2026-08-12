@@ -173,7 +173,7 @@ void main() {
 }`;
 
       const [flipX, flipY] = originToFlip(origin);
-      const uniforms: any = {
+      const uniforms = {
         iTime: { value: 0 },
         iResolution: { value: [1, 1] },
         iSpeed: { value: speed },

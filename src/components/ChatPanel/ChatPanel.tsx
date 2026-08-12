@@ -2,9 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import { useStore } from '../../store';
 import ParticleText from '../ParticleText/ParticleText';
 import ShinyText from '../ShinyText/ShinyText';
+import SideRays from '../SideRays/SideRays';
 import './ChatPanel.css';
-
-import PrismaticBurst from '../PrismaticBurst/PrismaticBurst';
 interface Props {
   isReadOnly: boolean;
 }
@@ -232,6 +231,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
   const messages = useStore((s) => s.messages);
   const theme = useStore((s) => s.theme);
   const accent = useStore((s) => s.accent);
+  const accent1 = getComputedStyle(document.documentElement).getPropertyValue('--accent-1').trim() || '#241549';
   const streamingMsgId = useStore((s) => s.streamingMsgId);
   const thinkingPhases = useStore((s) => s.thinkingPhases);
   const streamingMsg = streamingMsgId ? messages.find(m => m.id === streamingMsgId) : null;
@@ -543,25 +543,29 @@ export default function ChatPanel({ isReadOnly }: Props) {
 
   return (
     <div className="chat" style={{ position: 'relative' }}>
-      {isLoading && (
-        <PrismaticBurst
-          intensity={theme === 'dark' ? 3 : 8}
+      <div style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
+        <SideRays
           speed={2}
-          animationType="rotate3d"
-          colors={theme === 'dark' ? ['#000000', accent, accent] : ['#333333', accent, accent]}
-          distort={0}
-          rayCount={0}
-          className="chat-prismatic-burst"
+          rayColor1={accent}
+          rayColor2={accent}
+          intensity={1}
+          spread={0.5}
+          origin="top-right"
+          tilt={0}
+          saturation={1}
+          blend={0.1}
+          falloff={4}
+          opacity={1}
         />
-      )}
+      </div>
       <div className="chat-body" ref={chatBodyRef}>
         {isWelcomeOnly && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', zIndex: 1 }}>
             <ParticleText
               key={sessionKey}
               text="请输入你的想法或目标"
-              particleSize={1.5}
-              density={3}
+              particleSize={1.2}
+              density={2}
               color={theme === 'dark' ? '#ffffff' : '#000000'}
               highlightColor={accent}
               scatter={500}
@@ -571,8 +575,8 @@ export default function ChatPanel({ isReadOnly }: Props) {
               repelRadius={220}
               idleDrift={1}
               trigger="mount"
-              fontSize="clamp(1.8rem, 7vw, 4.5rem)"
-              fontWeight={300}
+              fontSize={40}
+              fontWeight={200}
               fontFamily="inherit"
               glow
               style={{ width: '100%', height: '100%' }}
@@ -615,7 +619,7 @@ export default function ChatPanel({ isReadOnly }: Props) {
                             {phase.label.includes('中') ? (
                               <ShinyText
                                 text={phase.label + (phase.thinkingTime !== undefined ? " " + phase.thinkingTime + "s" : phase.startTime ? " " + Math.floor((Date.now() - phase.startTime) / 1000) + "s" : " " + thinkingTime + "s")}
-                                speed={2}
+                                speed={0.8}
                                 delay={0}
                                 color={theme === 'dark' ? '#ffffff' : '#000000'}
                                 shineColor={accent}

@@ -4,7 +4,7 @@
   min-width: 0;
   min-height: 0;
   height: 100%;
-  background: transparent;
+  background: var(--bg-hover);
   position: relative;
   overflow: hidden;
 }
@@ -875,16 +875,21 @@
   color: #ff4d4f;
 }
 
+[data-theme="dark"] .reasoning-block {
+  background: rgba(255,255,255,0.06);
+}
+[data-theme="light"] .reasoning-block {
+  background: rgba(0,0,0,0.05);
+}
 .reasoning-block {
   margin: 4px 0;
   padding: 8px 12px;
-  background: rgba(255,255,255,0.03);
   border-left: 2px solid var(--muted);
   font-size: 12px;
   color: var(--muted);
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 400px;
+  max-height: 500px;
   overflow-y: auto;
   line-height: 1.5;
 }

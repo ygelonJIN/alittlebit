@@ -32,7 +32,7 @@ export function applyAccentColor(hex: string) {
   root.style.setProperty('--accent-b', String(rgb[2]));
   // 5 opaque accent variants
   const isDark = document.documentElement.dataset.theme !== 'light';
-  const bg: [number, number, number] = isDark ? [6, 9, 18] : [245, 245, 245];
+  const bg: [number, number, number] = isDark ? [6, 9, 18] : [240, 240, 240];
   root.style.setProperty('--accent-solid', `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`);
   root.style.setProperty('--accent-0', mixHex(rgb, bg, 0.35));
   root.style.setProperty('--accent-1', mixHex(rgb, bg, 0.25));
@@ -50,7 +50,7 @@ export function applyThemeMode(theme: ThemeMode) {
   const r = parseInt(root.style.getPropertyValue('--accent-r')) || 124;
   const g = parseInt(root.style.getPropertyValue('--accent-g')) || 58;
   const b = parseInt(root.style.getPropertyValue('--accent-b')) || 237;
-  const bg: [number, number, number] = theme === 'dark' ? [6, 9, 18] : [245, 245, 245];
+  const bg: [number, number, number] = theme === 'dark' ? [6, 9, 18] : [240, 240, 240];
   root.style.setProperty('--accent-0', mixHex([r, g, b], bg, 0.35));
   root.style.setProperty('--accent-1', mixHex([r, g, b], bg, 0.25));
   root.style.setProperty('--accent-2', mixHex([r, g, b], bg, 0.15));
