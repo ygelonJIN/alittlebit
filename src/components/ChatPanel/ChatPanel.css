@@ -289,7 +289,7 @@
 
 
 .chat-submit-btn:hover {
-  background: var(--accent-0);
+  background: var(--accent-1);
 }
 .chat-submit-btn:disabled {
   opacity: 0.6;
@@ -451,8 +451,7 @@
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 .btn:hover {
-  background: var(--accent-0);
-  color: var(--accent-solid);
+  background: var(--accent-1);
   border-left-color: var(--accent-solid);
 }
 
@@ -583,11 +582,10 @@
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 .new-session-btn:hover {
-  background: var(--accent-1);
-  color: var(--text);
+  background: var(--accent-0);
   border-left-color: var(--accent-solid);
 }
 
@@ -627,15 +625,13 @@
 }
 
 .upstream-chip:hover {
-  background: var(--accent-1);
-  color: var(--text);
+  background: var(--accent-0);
   border-left-color: var(--accent-solid);
 }
 
 .upstream-chip.active {
-  color: var(--accent-solid);
+  background: var(--accent-0);
   border-left-color: var(--accent-solid);
-  background: var(--accent-1);
 }
 .upstream-chip:last-child {
   border-right: none;
@@ -688,15 +684,13 @@
 }
 
 .upstream-chip:hover {
-  background: var(--accent-1);
-  color: var(--text);
+  background: var(--accent-0);
   border-left-color: var(--accent-solid);
 }
 
 .upstream-chip.active {
-  color: var(--accent-solid);
+  background: var(--accent-0);
   border-left-color: var(--accent-solid);
-  background: var(--accent-1);
 }
 
 [data-theme="light"] .upstream-chip {

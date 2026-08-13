@@ -470,7 +470,7 @@ function filesPlugin(): Plugin {
             }
 
             // action === 'lock': check prerequisites
-            const required = ['version_summary.md', 'changes.md', 'questions.md', 'confirms.md'];
+            const required = ['changes.md', 'questions.md', 'confirms.md'];
             const missing = required.filter((f) => !fs.existsSync(path.join(bDir, f)));
             if (missing.length > 0) {
               res.statusCode = 400;

@@ -6,7 +6,14 @@ import StatusBar from './components/StatusBar/StatusBar';
 import SettingsModal from './components/SettingsModal/SettingsModal';
 import { useStore } from './store';
 import Toast from './components/Toast/Toast';
+import TextLoop from './components/TextLoop/TextLoop';
 import './App.css';
+
+function getAccentHex(varName: string, fallback: string): string {
+  const root = document.documentElement;
+  const style = getComputedStyle(root);
+  return style.getPropertyValue(varName).trim() || fallback;
+}
 
 export default function App() {
   const versions = useStore((s) => s.versions);
@@ -102,7 +109,7 @@ export default function App() {
           <div className="traffic">
             <span className="dot red" /><span className="dot yellow" /><span className="dot green" />
           </div>
-          <div className="title">AI 项目计划生成系统</div>
+          <div className="title"></div>
           <div className="titlebar-right">
             <div className="titlebar-dropdown">
               <button className="titlebar-settings" onClick={() => setShowQDropdown(!showQDropdown)}>单次提问数量 {questionCount}</button>
@@ -134,7 +141,20 @@ export default function App() {
                 const confirmingDelVer = pendingAction?.id === v.id && pendingAction?.action === 'deleteVer';
                 return (
                   <div key={v.id} className={`ver-tab-inline${isActive ? ' active' : ''}${v.locked ? ' locked' : ''}`} onClick={() => selectVersion(v.id)}>
-                    <span className={`ver-lock-pill${v.locked ? ' locked' : ''}`} onClick={(e) => { e.stopPropagation(); locklockVersion(v.id); }} title={v.locked ? '解锁' : '锁定'} />
+                    {v.locked && (
+                      <TextLoop
+                        text="locked"
+                        speed={120}
+                        direction="forward"
+                        separator="•"
+                        fontSize={200}
+                        fontWeight={300}
+                        uppercase
+                        color={getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#edf4ff'}
+                        totalWidth={10000}
+                        style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none', opacity: 1 }}
+                      />
+                    )}
                     {editingVerId === v.id ? (
                       <input
                         className="ver-name-input"
@@ -146,13 +166,20 @@ export default function App() {
                         onClick={(e) => e.stopPropagation()}
                       />
                     ) : (
-                      <span className="ver-tab-name" onDoubleClick={(e) => { e.stopPropagation(); setEditingVerId(v.id); setEditVerName(v.title); }}>
-                        {v.title}
+                      <span
+                        className={`ver-tab-name${v.locked ? ' ver-name-locked' : ''}`}
+                        onClick={(e) => { e.stopPropagation(); locklockVersion(v.id); }}
+                        onDoubleClick={(e) => { e.stopPropagation(); setEditingVerId(v.id); setEditVerName(v.title); }}
+                        title={v.locked ? '已锁定（点击解锁）' : '点击锁定'}
+                      >
+                        <span style={{ position: 'relative', zIndex: 1 }}>{v.title}</span>
                       </span>
                     )}
                     <span className="ver-actions">
-                      <button className="ver-delete-btn" onClick={(e) => { e.stopPropagation(); confirmAndExec(v.id, 'deleteVer'); }} style={{ visibility: isActive ? 'visible' : 'hidden' }}>{confirmingDelVer ? '✓' : 'delete'}</button>
-                      <button className="ver-next-btn" onClick={(e) => { e.stopPropagation(); createNextVersion(v.id); }} style={{ visibility: isActive ? 'visible' : 'hidden' }}>next</button>
+                      {!v.locked && (
+                        <button className="ver-delete-btn" onClick={(e) => { e.stopPropagation(); confirmAndExec(v.id, 'deleteVer'); }} style={{ visibility: isActive ? 'visible' : 'hidden' }}>{confirmingDelVer ? '✓' : 'delete'}</button>
+                      )}
+                      <button className={`ver-next-btn${v.locked ? ' ver-next-full' : ''}`} onClick={(e) => { e.stopPropagation(); createNextVersion(v.id); }} style={{ visibility: isActive ? 'visible' : 'hidden' }}>next</button>
                     </span>
                   </div>
                 );

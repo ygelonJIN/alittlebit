@@ -8,7 +8,7 @@ import { applyAccentColor, applyThemeMode, type ThemeMode } from './theme';
 import { showToast } from './components/Toast/Toast';
 
 const linesV1: EditorLine[] = [
-  { id: 'v1L1', lineNumber: 1, text: '# AI 项目计划生成系统 v1.0', type: 'heading' },
+  { id: 'v1L1', lineNumber: 1, text: '', type: 'paragraph' },
   { id: 'v1L2', lineNumber: 2, text: '', type: 'paragraph' },
   { id: 'v1L3', lineNumber: 3, text: '> 初始草案版本。', type: 'quote' },
   { id: 'v1L4', lineNumber: 4, text: '## 目标', type: 'heading', active: true },
@@ -1746,6 +1746,11 @@ export const useStore = create<AppState>()(
     const newMessages = updatedFileMessages[id] || [{ id: 'm1', role: 'assistant' as const, content: '请输入你的想法或目标\n我来帮你逐步收敛为可执行的计划。', timestamp: '10:00' }];
     console.log('[selectFile] restored messages len=', newMessages.length);
     set({ activeFileId: id, fileMessages: updatedFileMessages, messages: newMessages });
+    // Set read-only based on version lock or file lock
+    const version = get().versions.find((v: any) => v.id === get().activeVersionId);
+    const isVersionLocked = version?.locked ?? false;
+    const isFileLocked = file.light === 'green';
+    set({ isReadOnly: isVersionLocked || isFileLocked });
     if (file.type === 'folder') return;
     // Build path from id (which preserves full relative path like a/01-prd.md)
     const verId = get().activeVersionId;
@@ -2086,7 +2091,7 @@ export const useStore = create<AppState>()(
       set({
         versions: versions.map((x) => x.id === id ? { ...x, locked: true, stage: 'locked' } as any : x),
         isReadOnly: get().activeVersionId === id ? true : get().isReadOnly,
-        messages: [...get().messages, { id: 'm' + (msgCounter++), role: 'assistant' as const, content: '版本 ' + v.title + ' 已 locklock。硬门槛检查通过，已归档至 letsgo/archive/' + id + '/', timestamp: now() }],
+        messages: [...get().messages, { id: 'm' + (msgCounter++), role: 'assistant' as const, content: '版本 ' + v.title + ' 已锁定。已归档至 letsgo/archive/' + id + '/', timestamp: now() }],
       });
     } catch {
       set((s) => ({
@@ -2216,6 +2221,8 @@ export const useStore = create<AppState>()(
   },
 
   toggleLight: (fileId) => {
+    const file = get().files.flatMap(g => g.children || []).find(f => f.id === fileId);
+    const nextLight = file?.light === 'green' ? 'gray' : 'green';
     set((s) => ({
       files: s.files.map((g) => {
         if (!g.children) return g;
@@ -2229,6 +2236,7 @@ export const useStore = create<AppState>()(
           }),
         };
       }),
+      isReadOnly: s.activeFileId === fileId ? nextLight === 'green' : s.isReadOnly,
     }));
   },
 

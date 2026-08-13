@@ -1,10 +1,29 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import type { FileItem } from '../../data/files';
 import { useStore } from '../../store';
+import LiquidEther from '../LiquidEther/LiquidEther';
+import TextLoop from '../TextLoop/TextLoop';
 import './FileExplorer.css';
 
 interface Props {
   files: FileItem[];
+}
+
+function getAccentColors(): string[] {
+  const root = document.documentElement;
+  const style = getComputedStyle(root);
+  const isDark = root.dataset.theme !== 'light';
+  return [
+    isDark ? '#000000' : '#ffffff',
+    style.getPropertyValue('--accent-solid').trim() || '#7c3aed',
+    style.getPropertyValue('--accent-1').trim() || '#241549',
+  ];
+}
+
+function getAccentHex(varName: string, fallback: string): string {
+  const root = document.documentElement;
+  const style = getComputedStyle(root);
+  return style.getPropertyValue(varName).trim() || fallback;
 }
 
 export default function FileExplorer({ files }: Props) {
@@ -58,7 +77,23 @@ export default function FileExplorer({ files }: Props) {
   const totalCount = groups.reduce((sum, g) => sum + (g.children?.length ?? 0), 0) + rootFiles.length;
 
   return (
-    <div className="file-explorer">
+    <div className="file-explorer" style={{ position: 'relative' }}>
+      <LiquidEther
+        colors={getAccentColors()}
+        mouseForce={40}
+        cursorSize={40}
+        resolution={0.6}
+        autoDemo={true}
+        autoSpeed={0.5}
+        autoIntensity={3}
+        takeoverDuration={0.25}
+        autoResumeDelay={3000}
+        autoRampDuration={0.6}
+        isBounce={true}
+        isViscous={false}
+        iterationsPoisson={16}
+        style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}
+      />
       <div className="explorer-head">
         <span>EXPLORER</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -111,12 +146,28 @@ export default function FileExplorer({ files }: Props) {
                   className={`file-item file-child${isActive ? ' active' : ''}`}
                   onClick={() => selectFile(f.id)}
                 >
-                  {showLight ? (
-                    <span
-                      className={`pill light-pill${f.light === 'green' ? ' light-green' : ''}`}
-                      onClick={(e) => { e.stopPropagation(); toggleLight(f.id); }}
-                      title={f.light === 'green' ? '已锁定' : '待确认（点击切换）'}
+                  {f.light === 'green' && (
+                    <TextLoop
+                      text="locked"
+                      shape="line"
+                      speed={120}
+                      direction="forward"
+                      separator="•"
+                      curviness={0}
+                      fontSize={200}
+                      fontWeight={300}
+                      letterSpacing={10}
+                      uppercase
+                      color={getComputedStyle(document.documentElement).getPropertyValue('--text').trim() || '#edf4ff'}
+                      ribbon={false}
+                      ribbonColor={getAccentHex('--accent-2', '#1a1030')}
+                      ribbonWidth={0}
+                      pauseOnHover={false}
+                      style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none', opacity: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                     />
+                  )}
+                  {showLight ? (
+                    null
                   ) : null}
                   {editingFileId === f.id ? (
                     <input
@@ -130,9 +181,13 @@ export default function FileExplorer({ files }: Props) {
                     />
                   ) : (
                     <span
-                      className="file-name"
-                      onDoubleClick={canRename ? (e) => { e.stopPropagation(); setEditingFileId(f.id); setEditFileName(f.name); } : undefined}
-                    >{f.name}</span>
+                      className={`file-name${showLight ? ' name-btn' : ''}${f.light === 'green' ? ' name-locked' : ''}${isActive ? ' active' : ''}`}
+                      onClick={showLight ? (e) => { e.stopPropagation(); toggleLight(f.id); } : undefined}
+                      onDoubleClick={canRename && !showLight ? (e) => { e.stopPropagation(); setEditingFileId(f.id); setEditFileName(f.name); } : undefined}
+                      title={showLight ? (f.light === 'green' ? '已锁定（点击解锁）' : '待确认（点击锁定）') : undefined}
+                    >
+                      <span style={{ position: 'relative', zIndex: 1 }}>{f.name}</span>
+                    </span>
                   )}
                   {f.hasTemplate ? (
                     <button

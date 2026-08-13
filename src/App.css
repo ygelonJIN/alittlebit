@@ -44,7 +44,7 @@
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
-.titlebar-settings:hover { background: var(--accent-1); border-left-color: var(--accent-solid); color: var(--text); }
+.titlebar-settings:hover { background: var(--accent-0); border-left-color: var(--accent-solid); }
 .titlebar-dropdown { position: relative; margin-left: 8px; }
 .titlebar-status {
   border: none;
@@ -84,7 +84,7 @@
   transition: background 0.15s, border-color 0.15s;
 }
 .dropdown-item:last-child { border-bottom: none; }
-.dropdown-item:hover { background: var(--accent-1); color: var(--text); border-left-color: var(--accent-solid); }
+.dropdown-item:hover { background: var(--accent-0); border-left-color: var(--accent-solid); }
 
 .layout {
   display: grid;
@@ -115,7 +115,7 @@
   justify-content: center;
   transition: background 0.15s, color 0.15s;
 }
-.ver-nav-btn:hover:not(:disabled) { background: var(--accent-3); color: var(--text); }
+.ver-nav-btn:hover:not(:disabled) { background: var(--accent-2); }
 .ver-nav-btn:disabled { opacity: 0.25; cursor: default; }
 
 .ver-bar-shared {

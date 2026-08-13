@@ -23,7 +23,7 @@ export const files: FileItem[] = [
       { id: 'f3', name: 'changes.md', type: 'md', category: 'b' },
       { id: 'f4', name: 'questions.md', type: 'md', category: 'b' },
       { id: 'f5', name: 'confirms.md', type: 'md', category: 'b' },
-      { id: 'f7', name: 'lock_summary.md', type: 'md', category: 'b' },
+
     ],
   },
   {

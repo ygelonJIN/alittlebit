@@ -98,8 +98,7 @@
 }
 
 .settings-seg.active {
-  background: var(--accent-1);
-  color: var(--accent-solid);
+  background: var(--accent-0);
   border-left-color: var(--accent-solid);
 }
 
@@ -122,8 +121,7 @@
 }
 
 .settings-btn:hover {
-  background: var(--accent-1);
-  color: var(--text);
+  background: var(--accent-0);
   border-left-color: var(--accent-solid);
 }
 

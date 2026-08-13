@@ -38,21 +38,11 @@
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition: background 0.15s, border-color 0.15s;
 }
-.editor-mode-btn:last-child {
-  border-right: none;
-}
-.editor-mode-btn:hover {
-  background: var(--accent-1);
-  color: var(--text);
-  border-left-color: var(--accent-solid);
-}
-.editor-mode-btn.active {
-  background: var(--accent-1);
-  color: var(--text);
-  border-left-color: var(--accent-solid);
-}
+.editor-mode-btn:last-child { border-right: none; }
+.editor-mode-btn:hover { background: var(--accent-0); border-left-color: var(--accent-solid); }
+.editor-mode-btn.active { background: var(--accent-0); border-left-color: var(--accent-solid); }
 
 .editor-preview {
   height: 100%;
@@ -98,6 +88,7 @@
 /* ── Version tabs ── */
 .ver-tabs-inline { display: flex; align-items: center; gap: 4px; flex: 1; }
 
+/* ── 外层：ver-tab-inline（对齐 file-item）── */
 .ver-tab-inline {
   display: flex; align-items: center; gap: 10px;
   padding: 0 12px;
@@ -106,21 +97,47 @@
   border: none;
   border-top: 3px solid transparent;
   border-right: 1px solid var(--line-light);
-  font-size: 13px; color: var(--muted);
+  font-size: 13px; color: var(--text-secondary);
   cursor: pointer;
   background: var(--bg-hover);
   height: 100%;
   transition: background 0.15s, border-color 0.15s;
+  position: relative;
+  overflow: hidden;
 }
-.ver-tab-inline:hover { background: var(--accent-3); }
+.ver-tab-inline:hover { background: var(--accent-2); }
 .ver-tab-inline.active {
   background: var(--accent-1);
   border-top-color: var(--accent-solid);
   border-right: 1px solid var(--line-light);
-  color: var(--editor-text);
 }
-.ver-tab-inline.locked { opacity: 0.7; }
-.ver-tab-name { font-weight: 600; }
+
+/* ── 内层：ver-tab-name（对齐 name-btn）── */
+.ver-tab-name {
+  cursor: pointer;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font-size: 13px; font-weight: 600;
+  transition: background 0.15s, border-color 0.15s;
+  position: relative;
+  overflow: visible;
+  z-index: 1;
+}
+.ver-tab-name:hover {
+  background: var(--accent-0);
+  border-left-color: var(--accent-solid);
+}
+.ver-tab-name.ver-name-locked {
+  background: var(--accent-0);
+  border-left-color: var(--accent-solid);
+}
+.ver-tab-name.ver-name-locked:hover {
+  background: var(--accent-0);
+  border-left-color: var(--accent-solid);
+}
+
 .ver-name-input {
   background: var(--bg-hover);
   border: none;
@@ -135,14 +152,7 @@
 
 .ver-actions { display: flex; align-items: center; gap: 0; margin-left: auto; flex-shrink: 0; }
 
-.ver-lock-pill {
-  width: 10px; height: 10px;
-  background: var(--muted); cursor: pointer; flex-shrink: 0;
-  transition: background 0.15s, box-shadow 0.15s;
-}
-.ver-lock-pill:hover { background: var(--text-secondary); }
-.ver-lock-pill.locked { background: #1ea032; box-shadow: 0 0 4px rgba(30,160,50,0.4); }
-
+/* ── 内层：ver-next-btn（对齐 file-action-btn reset）── */
 .ver-next-btn {
   height: 24px;
   padding: 0 8px;
@@ -153,9 +163,18 @@
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
   transition: background 0.15s, border-color 0.15s;
+  position: relative;
+  z-index: 1;
 }
-.ver-next-btn:hover { background: var(--accent-0); border-left-color: var(--accent-solid); }
+.ver-next-btn:hover {
+  background: var(--accent-0);
+  border-left-color: var(--accent-solid);
+}
+.ver-next-btn.ver-next-full {
+  width: 100%;
+}
 
+/* ── 内层：ver-delete-btn（对齐 file-action-btn delete）── */
 .ver-delete-btn {
   height: 24px;
   padding: 0 8px;
@@ -166,8 +185,13 @@
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
   transition: background 0.15s, border-color 0.15s;
+  position: relative;
+  z-index: 1;
 }
-.ver-delete-btn:hover { background: var(--accent-0); border-left-color: var(--accent-solid); }
+.ver-delete-btn:hover {
+  background: var(--accent-0);
+  border-left-color: var(--accent-solid);
+}
 
 .ver-tab-rename {
   background: transparent; border: 1px solid var(--accent-solid);
