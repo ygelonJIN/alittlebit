@@ -12,11 +12,10 @@ interface Props {
 function getAccentColors(): string[] {
   const root = document.documentElement;
   const style = getComputedStyle(root);
-  const isDark = root.dataset.theme !== 'light';
   return [
-    isDark ? '#000000' : '#ffffff',
     style.getPropertyValue('--accent-solid').trim() || '#7c3aed',
     style.getPropertyValue('--accent-1').trim() || '#241549',
+    style.getPropertyValue('--accent-2').trim() || '#1a1030',
   ];
 }
 
@@ -80,17 +79,17 @@ export default function FileExplorer({ files }: Props) {
     <div className="file-explorer" style={{ position: 'relative' }}>
       <LiquidEther
         colors={getAccentColors()}
-        mouseForce={40}
-        cursorSize={40}
-        resolution={0.6}
+        mouseForce={20}
+        cursorSize={20}
+        resolution={0.5}
         autoDemo={true}
         autoSpeed={0.5}
-        autoIntensity={3}
+        autoIntensity={5}
         takeoverDuration={0.25}
-        autoResumeDelay={3000}
-        autoRampDuration={0.6}
+        autoResumeDelay={0}
+        autoRampDuration={0.1}
         isBounce={true}
-        isViscous={false}
+        isViscous={true}
         iterationsPoisson={16}
         style={{ position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none' }}
       />

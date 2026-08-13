@@ -7,6 +7,7 @@ import SettingsModal from './components/SettingsModal/SettingsModal';
 import { useStore } from './store';
 import Toast from './components/Toast/Toast';
 import TextLoop from './components/TextLoop/TextLoop';
+import SplitFlapText from './components/SplitFlapText/SplitFlapText';
 import './App.css';
 
 function getAccentHex(varName: string, fallback: string): string {
@@ -109,7 +110,23 @@ export default function App() {
           <div className="traffic">
             <span className="dot red" /><span className="dot yellow" /><span className="dot green" />
           </div>
-          <div className="title"></div>
+          <div className="title">
+            <SplitFlapText
+              words={['a little bit', 'why not now?']}
+              flipDuration={0.1}
+              stagger={0.04}
+              cycleDelay={1500}
+              charset="alpha"
+              flipsPerChar={6}
+              tileColor={document.documentElement.dataset.theme === 'light' ? '#ffffff' : '#000000'}
+              textColor={document.documentElement.dataset.theme === 'light' ? '#000000' : '#ffffff'}
+              tileRadius={0}
+              gap={12}
+              fontSize={35}
+              loop
+              padTo={10}
+            />
+          </div>
           <div className="titlebar-right">
             <div className="titlebar-dropdown">
               <button className="titlebar-settings" onClick={() => setShowQDropdown(!showQDropdown)}>单次提问数量 {questionCount}</button>
